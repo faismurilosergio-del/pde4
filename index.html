@@ -21,8 +21,8 @@
         #loadingOverlay { position: fixed; inset: 0; background: #0f172a; z-index: 100; display: flex; align-items: center; justify-content: center; flex-direction: column; color: white; }
         .spinner { width: 40px; height: 40px; border: 4px solid #334155; border-top: 4px solid #6366f1; border-radius: 50%; animation: spin 1s linear infinite; margin-bottom: 15px; }
         @keyframes spin { to { transform: rotate(360deg); } }
-        /* Ajuste para gráficos menores */
-        .chart-container { position: relative; margin: auto; height: 250px; width: 100%; }
+        /* Ajuste para gráficos maiores conforme solicitado */
+        .chart-container { position: relative; margin: auto; height: 400px; width: 100%; }
     </style>
 
     <script type="module">
@@ -148,10 +148,6 @@
                     <label class="text-[9px] font-bold text-indigo-400 uppercase mb-1">Filtrar Setor</label>
                     <select id="dashFilterSector" onchange="renderCharts()" class="text-xs p-2 border rounded-md min-w-[200px] outline-none focus:ring-2 focus:ring-indigo-500"></select>
                 </div>
-                <div class="flex flex-col">
-                    <label class="text-[9px] font-bold text-indigo-400 uppercase mb-1">Qtd. Itens nas Listas</label>
-                    <input type="number" id="dashLimit" value="5" min="1" onchange="renderCharts()" class="text-xs p-2 border rounded-md w-[80px] outline-none">
-                </div>
             </div>
 
             <div class="grid grid-cols-1 md:grid-cols-5 gap-6">
@@ -186,6 +182,11 @@
                 </div>
             </div>
 
+            <div class="flex justify-center items-center gap-3 bg-white p-3 rounded-xl border border-slate-200 shadow-sm max-w-xs mx-auto">
+                <label class="text-[10px] font-black text-slate-500 uppercase">Mostrar itens nas listas:</label>
+                <input type="number" id="dashLimit" value="5" min="1" max="50" onchange="renderCharts()" class="text-center font-bold text-indigo-600 border rounded-md w-16 p-1 outline-none focus:ring-2 focus:ring-indigo-500">
+            </div>
+
             <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
                 <div class="card overflow-hidden">
                     <div class="p-4 border-b border-slate-100 bg-slate-50">
@@ -218,8 +219,9 @@
                             <thead class="text-[9px] uppercase font-bold text-slate-400 border-b">
                                 <tr>
                                     <th class="p-4">Atividade</th>
+                                    <th class="p-4">Responsável</th>
                                     <th class="p-4">Prazo</th>
-                                    <th class="p-4 text-right">Status</th>
+                                    <th class="p-4 text-right">Faltam</th>
                                 </tr>
                             </thead>
                             <tbody id="upcomingTasksBody" class="text-xs divide-y"></tbody>
@@ -314,6 +316,13 @@
             const end = new Date(deadline);
             const diffDays = Math.ceil((TODAY - end) / (1000 * 60 * 60 * 24));
             return diffDays > 0 ? diffDays : 0;
+        }
+
+        function getDaysRemaining(deadline) {
+            if (!deadline) return null;
+            const end = new Date(deadline);
+            const diffDays = Math.ceil((end - TODAY) / (1000 * 60 * 60 * 24));
+            return diffDays;
         }
 
         function formatDate(dateStr) {
@@ -441,7 +450,7 @@
                 }
             });
 
-            // TABELA CRITICIDADE (MAIOR ATRASO)
+            // LISTA CRITICIDADE
             const criticalBody = document.getElementById('criticalTasksBody');
             criticalBody.innerHTML = '';
             [...filteredData]
@@ -450,18 +459,26 @@
                 .sort((a, b) => b.delay - a.delay)
                 .slice(0, limit)
                 .forEach(t => {
-                    criticalBody.innerHTML += `<tr><td class="p-4 font-bold">${t.title}</td><td class="p-4 text-[10px] text-indigo-600">${t.project}</td><td class="p-4 text-right font-black text-rose-600">${t.delay}d</td></tr>`;
+                    criticalBody.innerHTML += `<tr><td class="p-4 font-bold">${t.title}</td><td class="p-4 text-[10px] text-indigo-600 uppercase font-black">${t.project}</td><td class="p-4 text-right font-black text-rose-600 italic">${t.delay} dias</td></tr>`;
                 });
 
-            // TABELA PRÓXIMAS A VENCER (NÃO CONCLUÍDAS)
+            // LISTA PRÓXIMAS A VENCER
             const upcomingBody = document.getElementById('upcomingTasksBody');
             upcomingBody.innerHTML = '';
             [...filteredData]
-                .filter(t => t.status !== 'concluido' && t.deadline)
+                .filter(t => t.status !== 'concluido' && t.deadline && calculateDelay(t.deadline, t.status) === 0)
                 .sort((a, b) => new Date(a.deadline) - new Date(b.deadline))
                 .slice(0, limit)
                 .forEach(t => {
-                    upcomingBody.innerHTML += `<tr><td class="p-4 font-bold">${t.title}</td><td class="p-4">${formatDate(t.deadline)}</td><td class="p-4 text-right"><span class="status-badge status-${t.status}">${t.status}</span></td></tr>`;
+                    const days = getDaysRemaining(t.deadline);
+                    let color = days <= 3 ? 'text-amber-600 font-bold' : 'text-slate-500';
+                    upcomingBody.innerHTML += `
+                        <tr>
+                            <td class="p-4 font-bold">${t.title}</td>
+                            <td class="p-4 text-slate-500 font-medium">${t.owner}</td>
+                            <td class="p-4">${formatDate(t.deadline)}</td>
+                            <td class="p-4 text-right ${color}">${days} dias</td>
+                        </tr>`;
                 });
         }
 
@@ -470,7 +487,6 @@
             const sectors = [...new Set(window.tasks.map(t => t.sector).filter(s => s))].sort();
             const owners = [...new Set(window.tasks.map(t => t.owner).filter(o => o))].sort();
             
-            // Filtros da Lista
             const fProj = document.getElementById('filterProject');
             const fOwner = document.getElementById('filterOwner');
             const dList = document.getElementById('projectsList');
@@ -485,7 +501,6 @@
             });
             owners.forEach(o => fOwner.innerHTML += `<option value="${o}">${o}</option>`);
 
-            // Filtros do Dashboard
             const dashProj = document.getElementById('dashFilterProject');
             const dashSect = document.getElementById('dashFilterSector');
             const curP = dashProj.value;
@@ -501,7 +516,7 @@
             dashSect.value = curS || 'all';
         }
 
-        // Funções de Modal e Crud (Mantidas idênticas ao original)
+        // Funções de Modal e Sync (Inalteradas conforme solicitado)
         function editTask(id) {
             const t = window.tasks.find(x => x.id === id);
             document.getElementById('editIdx').value = id;
