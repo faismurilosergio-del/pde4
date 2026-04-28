@@ -7,6 +7,7 @@
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 
+    <!-- Firebase SDK -->
     <script type="module">
         import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js";
         import {
@@ -47,29 +48,30 @@
         window._firestoreDeleteDoc = deleteDoc;
         window._firestoreOnSnapshot = onSnapshot;
 
-        // FUNÇÃO CORRIGIDA PARA EVITAR CARREGAMENTO INFINITO
         async function initFirebase() {
             const loader = document.getElementById('loadingOverlay');
-            loader.classList.remove('hidden');
+            console.log("DEBUG: Iniciando tentativa de conexão...");
 
             try {
-                // Tenta buscar os documentos uma vez para verificar se o banco está vazio
+                // Tenta buscar os documentos iniciais
                 const snapshot = await getDocs(tasksCol);
+                console.log("DEBUG: Conexão estabelecida. Docs:", snapshot.size);
 
                 if (snapshot.empty) {
-                    console.log("Banco vazio, inserindo dados iniciais...");
+                    console.log("DEBUG: Banco vazio, criando dados iniciais...");
                     for (const t of initialTasks) {
                         await setDoc(doc(db, "tasks", String(t.id)), t);
                     }
                 }
 
-                // Configura o listener em tempo real
+                // Escuta mudanças em tempo real
                 onSnapshot(tasksCol, (snap) => {
+                    console.log("DEBUG: Mudança detectada no banco.");
                     window.tasks = [];
                     snap.forEach(d => window.tasks.push(d.data()));
                     window.tasks.sort((a, b) => a.id - b.id);
                     
-                    // Esconde o loader assim que os dados (mesmo que vazios) cheguem
+                    // Remove o loader assim que os dados chegam
                     loader.classList.add('hidden');
                     
                     if (typeof updateDropdowns === 'function') {
@@ -77,16 +79,15 @@
                         renderTasks();
                     }
                 }, (error) => {
-                    // Caso ocorra erro no snapshot (ex: permissão negada)
                     loader.classList.add('hidden');
-                    console.error("Erro no Firebase Snapshot:", error);
+                    console.error("DEBUG: Erro no onSnapshot:", error);
                 });
 
             } catch (error) {
-                // Caso ocorra erro na conexão inicial
+                // SE DER ERRO, DESBLOQUEIA A TELA E MOSTRA O ERRO NO CONSOLE
                 loader.classList.add('hidden');
-                console.error("Erro ao conectar ao Firebase:", error);
-                alert("Erro de conexão. Verifique o console ou as Regras do Firebase.");
+                console.error("DEBUG: ERRO CRÍTICO NA INICIALIZAÇÃO:", error.code, error.message);
+                alert("Falha ao conectar ao banco de dados. Verifique o console (F12).");
             }
         }
 
@@ -115,11 +116,13 @@
 </head>
 <body class="text-slate-800">
 
+    <!-- Loading Overlay -->
     <div id="loadingOverlay">
         <div class="spinner"></div>
         <p class="text-white font-bold text-sm">Conectando ao banco de dados...</p>
     </div>
 
+    <!-- Header Principal -->
     <header class="bg-white border-b border-slate-200 sticky top-0 z-40">
         <div class="max-w-[1600px] mx-auto px-6 py-4 flex flex-col md:flex-row justify-between items-center gap-4">
             <div>
@@ -144,6 +147,8 @@
     </header>
 
     <main class="max-w-[1600px] mx-auto p-6">
+
+        <!-- ABA: LISTA DE ATIVIDADES -->
         <section id="tab-content-lista" class="space-y-6">
             <div class="card p-4 flex flex-wrap gap-4 items-center justify-between">
                 <div class="flex flex-wrap gap-4 items-center">
@@ -174,6 +179,7 @@
                 </div>
             </div>
 
+            <!-- Tabela -->
             <div class="card overflow-hidden">
                 <div class="overflow-x-auto">
                     <table class="w-full text-left border-collapse">
@@ -194,6 +200,7 @@
             </div>
         </section>
 
+        <!-- ABA: ANÁLISE E DASHBOARD -->
         <section id="tab-content-analise" class="space-y-6 hidden">
             <div class="grid grid-cols-1 md:grid-cols-4 gap-6">
                 <div class="card p-6 border-l-4 border-indigo-500">
@@ -230,6 +237,7 @@
         </section>
     </main>
 
+    <!-- Modal de Edição -->
     <div id="taskModal" class="fixed inset-0 bg-slate-900/80 hidden items-center justify-center p-4 z-50 backdrop-blur-sm">
         <div class="bg-white rounded-2xl max-w-3xl w-full shadow-2xl overflow-hidden">
             <div class="p-6 border-b border-slate-100 flex justify-between items-center bg-slate-50">
@@ -238,23 +246,28 @@
             </div>
             <div class="p-8 grid grid-cols-1 md:grid-cols-2 gap-6 overflow-y-auto max-h-[70vh]">
                 <input type="hidden" id="editIdx" value="">
+
                 <div class="md:col-span-1">
                     <label class="block text-[10px] font-bold text-slate-400 uppercase mb-1">Empreendimento</label>
                     <input list="projectsList" id="editProject" class="w-full bg-slate-50">
                     <datalist id="projectsList"></datalist>
                 </div>
+
                 <div class="md:col-span-1">
                     <label class="block text-[10px] font-bold text-slate-400 uppercase mb-1">Setor Responsável</label>
                     <input type="text" id="editSector" class="w-full bg-slate-50" placeholder="Ex: Incorporação, Engenharia...">
                 </div>
+
                 <div class="md:col-span-2">
                     <label class="block text-[10px] font-bold text-slate-400 uppercase mb-1">Título da Atividade</label>
                     <input type="text" id="editTitle" class="w-full bg-slate-50 font-bold" placeholder="Nome da tarefa">
                 </div>
+
                 <div>
                     <label class="block text-[10px] font-bold text-slate-400 uppercase mb-1">Responsável (Pessoa)</label>
                     <input type="text" id="editOwner" class="w-full bg-slate-50">
                 </div>
+
                 <div>
                     <label class="block text-[10px] font-bold text-slate-400 uppercase mb-1">Status Atual</label>
                     <select id="editStatus" class="w-full bg-slate-50 font-bold">
@@ -265,22 +278,27 @@
                         <option value="parado">Parado</option>
                     </select>
                 </div>
+
                 <div>
                     <label class="block text-[10px] font-bold text-slate-400 uppercase mb-1">Data Inicial Planejada</label>
                     <input type="date" id="editStart" class="w-full bg-slate-50">
                 </div>
+
                 <div>
                     <label class="block text-[10px] font-bold text-slate-400 uppercase mb-1">Data Final (Prazo)</label>
                     <input type="date" id="editDeadline" class="w-full bg-slate-50">
                 </div>
+
                 <div class="md:col-span-2">
                     <label class="block text-[10px] font-bold text-slate-400 uppercase mb-1">Próximo Passo</label>
                     <input type="text" id="editNextStep" class="w-full bg-slate-50" style="border-left: 4px solid #818cf8;">
                 </div>
+
                 <div class="md:col-span-2">
                     <label class="block text-[10px] font-bold text-slate-400 uppercase mb-1">Problemas Enfrentados</label>
                     <input type="text" id="editProblems" class="w-full bg-slate-50" style="border-left: 4px solid #fb7185;">
                 </div>
+
                 <div class="md:col-span-2">
                     <label class="block text-[10px] font-bold text-slate-400 uppercase mb-1">Histórico / Notas</label>
                     <textarea id="editNotes" rows="4" class="w-full bg-slate-50 text-xs" placeholder="Descreva o andamento..."></textarea>
@@ -299,6 +317,7 @@
         window.tasks = [];
         let mainChart, delayChart;
 
+        // Persistência: Firebase
         async function saveToFirebase(taskData) {
             await window._firestoreSetDoc(
                 window._firestoreDoc(window._db, "tasks", String(taskData.id)),
@@ -312,6 +331,7 @@
             );
         }
 
+        // UI
         function switchTab(tab) {
             ['lista', 'analise'].forEach(t => {
                 document.getElementById(`tab-content-${t}`).classList.add('hidden');
@@ -323,7 +343,7 @@
         }
 
         function calculateDelay(deadline, status) {
-            if (status === 'concluido') return 0;
+            if (status === 'concluido' || !deadline) return 0;
             const end = new Date(deadline);
             const diffDays = Math.ceil((TODAY - end) / (1000 * 60 * 60 * 24));
             return diffDays > 0 ? diffDays : 0;
@@ -357,45 +377,45 @@
                 row.className = 'hover:bg-slate-50 transition-all group';
                 row.innerHTML = `
                     <td class="py-5 px-6 align-top">
-                        <div class="text-[10px] font-black text-indigo-600 mb-1">${t.project}</div>
-                        <div class="text-[10px] font-bold text-slate-400 bg-slate-100 px-2 py-0.5 rounded-sm inline-block">${t.sector}</div>
+                        <div class="text-[10px] font-black text-indigo-600 mb-1">\${t.project}</div>
+                        <div class="text-[10px] font-bold text-slate-400 bg-slate-100 px-2 py-0.5 rounded-sm inline-block">\${t.sector || 'SETOR'}</div>
                     </td>
                     <td class="py-5 px-4 align-top">
-                        <div class="font-bold text-slate-800 text-base mb-2">${t.title}</div>
+                        <div class="font-bold text-slate-800 text-base mb-2">\${t.title}</div>
                         <div class="bg-slate-50 p-3 rounded-lg text-[11px] text-slate-500 leading-relaxed whitespace-pre-line" style="border-left: 2px solid #e2e8f0;">
                             <strong class="text-slate-400 uppercase text-[9px] block mb-1">Histórico de Anotações:</strong>
-                            ${t.notes || 'Nenhum registro.'}
+                            \${t.notes || 'Nenhum registro.'}
                         </div>
                     </td>
-                    <td class="py-5 px-4 align-top font-semibold text-slate-600">${t.owner}</td>
+                    <td class="py-5 px-4 align-top font-semibold text-slate-600">\${t.owner}</td>
                     <td class="py-5 px-4 align-top">
                         <div class="mb-3">
                             <span class="text-[9px] font-bold text-indigo-400 uppercase block">Próximo Passo:</span>
-                            <span class="text-xs font-medium text-slate-700">${t.nextStep || '-'}</span>
+                            <span class="text-xs font-medium text-slate-700">\${t.nextStep || '-'}</span>
                         </div>
                         <div>
                             <span class="text-[9px] font-bold text-rose-400 uppercase block">Problemas:</span>
-                            <span class="text-xs text-slate-500">${t.problems || '-'}</span>
+                            <span class="text-xs text-slate-500">\${t.problems || '-'}</span>
                         </div>
                     </td>
                     <td class="py-5 px-4 align-top">
-                        <div class="text-[10px] text-slate-400">Início: ${formatDate(t.start)}</div>
-                        <div class="text-[10px] text-slate-400">Fim: ${formatDate(t.deadline)}</div>
-                        ${delay > 0
-                            ? `<div class="mt-2 text-rose-600 font-black text-[10px]">⚠️ ${delay} DIAS ATRASO</div>`
+                        <div class="text-[10px] text-slate-400">Início: \${formatDate(t.start)}</div>
+                        <div class="text-[10px] text-slate-400">Fim: \${formatDate(t.deadline)}</div>
+                        \${delay > 0
+                            ? `<div class="mt-2 text-rose-600 font-black text-[10px]">⚠️ \${delay} DIAS ATRASO</div>`
                             : `<div class="mt-2 text-emerald-600 font-bold text-[10px]">EM DIA</div>`}
                     </td>
                     <td class="py-5 px-4 align-top">
-                        <span class="status-badge status-${t.status}">${t.status}</span>
+                        <span class="status-badge status-\${t.status}">\${t.status}</span>
                     </td>
                     <td class="py-5 px-6 align-top text-right">
-                        <button onclick="editTask(${t.id})" class="opacity-0 group-hover:opacity-100 bg-slate-800 text-white px-3 py-1.5 rounded-lg text-[10px] font-bold transition-all">EDITAR</button>
+                        <button onclick="editTask(\${t.id})" class="opacity-0 group-hover:opacity-100 bg-slate-800 text-white px-3 py-1.5 rounded-lg text-[10px] font-bold transition-all">EDITAR</button>
                     </td>
                 `;
                 tbody.appendChild(row);
             });
 
-            document.getElementById('showingCount').innerText = `Exibindo ${filtered.length} de ${window.tasks.length} atividades`;
+            document.getElementById('showingCount').innerText = `Exibindo \${filtered.length} de \${window.tasks.length} atividades`;
             updateGeneralStats(filtered);
         }
 
@@ -499,7 +519,7 @@
         }
 
         async function deleteTask() {
-            const id = document.getElementById('editIdx').value;
+            const id = parseInt(document.getElementById('editIdx').value);
             if (confirm("Tem certeza que deseja excluir esta atividade?")) {
                 await deleteFromFirebase(id);
                 closeModal();
@@ -530,7 +550,12 @@
             btn.innerText = 'Salvando...';
             btn.disabled = true;
 
-            await saveToFirebase(data);
+            try {
+                await saveToFirebase(data);
+            } catch (err) {
+                console.error("Erro ao salvar:", err);
+                alert("Erro ao salvar dados.");
+            }
 
             btn.innerText = 'Salvar Alterações';
             btn.disabled = false;
