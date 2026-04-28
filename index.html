@@ -3,12 +3,11 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Gestão Multiprojetos - PDE</title>
+    <title>Gestão PDE</title>
     <script src="https://cdn.tailwindcss.com"></script>
-    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <script type="module">
         import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js";
-        import { getFirestore, collection, getDocs, setDoc, deleteDoc, doc, onSnapshot } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js";
+        import { getFirestore, collection, onSnapshot, doc, setDoc } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js";
 
         const firebaseConfig = {
             apiKey: "AIzaSyBshYvEFAzYwQPI8R2JTx02B-30Lpriilc",
@@ -16,165 +15,78 @@
             projectId: "bemf-pde",
             storageBucket: "bemf-pde.firebasestorage.app",
             messagingSenderId: "742435947116",
-            appId: "1:742435947116:web:d01298e4918b74ad108e49",
-            measurementId: "G-5YK0X75FBJ"
+            appId: "1:742435947116:web:d01298e4918b74ad108e49"
         };
 
         const app = initializeApp(firebaseConfig);
         const db = getFirestore(app);
         const tasksCol = collection(db, "tasks");
 
-        window._db = db;
-        window._tasksCol = tasksCol;
-        window._firestoreDoc = doc;
-        window._firestoreSetDoc = setDoc;
-        window._firestoreDeleteDoc = deleteDoc;
-
-        async function initFirebase() {
-            const loader = document.getElementById('loadingOverlay');
-            try {
-                onSnapshot(tasksCol, (snap) => {
-                    console.log("DEBUG: Dados recebidos!");
-                    window.tasks = [];
-                    snap.forEach(d => window.tasks.push(d.data()));
-                    window.tasks.sort((a, b) => a.id - b.id);
-                    loader.classList.add('hidden');
-                    updateDropdowns();
-                    renderTasks();
-                });
-            } catch (error) {
-                loader.classList.add('hidden');
-                console.error("Erro:", error);
-            }
+        // Função interna para desenhar a tabela
+        function drawTable(data) {
+            const tbody = document.getElementById('taskTableBody');
+            if (!tbody) return;
+            tbody.innerHTML = '';
+            
+            data.forEach(t => {
+                const row = tbody.insertRow();
+                row.className = "border-b hover:bg-slate-50";
+                row.innerHTML = `
+                    <td class="p-4"><b class="text-indigo-600 text-xs">${t.project || 'PDE'}</b></td>
+                    <td class="p-4"><div class="font-bold">${t.title || 'Sem Título'}</div></td>
+                    <td class="p-4 text-slate-500">${t.owner || '-'}</td>
+                    <td class="p-4"><span class="bg-blue-100 text-blue-700 px-2 py-1 rounded text-[10px] font-bold uppercase">${t.status || 'andamento'}</span></td>
+                `;
+            });
         }
-        document.addEventListener('DOMContentLoaded', initFirebase);
+
+        // Escuta o banco de dados
+        onSnapshot(tasksCol, (snap) => {
+            console.log("DEBUG: Dados recebidos!");
+            const tasks = [];
+            snap.forEach(d => tasks.push(d.data()));
+            
+            // Esconde o carregamento
+            const loader = document.getElementById('loadingOverlay');
+            if(loader) loader.style.display = 'none';
+
+            drawTable(tasks);
+        });
     </script>
     <style>
-        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;700;900&display=swap');
-        body { font-family: 'Inter', sans-serif; background-color: #f1f5f9; }
-        .status-badge { padding: 4px 8px; border-radius: 4px; font-size: 10px; font-weight: 900; text-transform: uppercase; }
-        .status-andamento { background-color: #dcfce7; color: #166534; }
-        .status-concluido { background-color: #dbeafe; color: #1e40af; }
-        .status-atraso { background-color: #fee2e2; color: #991b1b; }
-        #loadingOverlay { position: fixed; inset: 0; background: rgba(15,23,42,0.8); z-index: 100; display: flex; align-items: center; justify-content: center; flex-direction: column; gap: 1rem; }
-        .spinner { width: 40px; height: 40px; border: 4px solid #f3f3f3; border-top: 4px solid #4f46e5; border-radius: 50%; animation: spin 1s linear infinite; }
-        @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+        #loadingOverlay { position: fixed; inset: 0; background: #0f172a; z-index: 100; display: flex; align-items: center; justify-content: center; flex-direction: column; color: white; font-family: sans-serif; }
+        .spinner { width: 40px; height: 40px; border: 4px solid #334155; border-top: 4px solid #6366f1; border-radius: 50%; animation: spin 1s linear infinite; mb: 10px; }
+        @keyframes spin { to { transform: rotate(360deg); } }
     </style>
 </head>
-<body>
+<body class="bg-slate-100">
+
     <div id="loadingOverlay">
         <div class="spinner"></div>
-        <p class="text-white font-bold">Sincronizando com Firebase...</p>
+        <p>Sincronizando com Firebase...</p>
     </div>
 
-    <header class="bg-white border-b p-6 flex justify-between items-center sticky top-0 z-40">
-        <div>
-            <h1 class="text-2xl font-black text-slate-900 italic uppercase">Gestão PDE <span class="text-indigo-600">Projetos</span></h1>
-            <p class="text-xs text-slate-400 font-bold">● Dados em Tempo Real</p>
-        </div>
-        <button onclick="addTask()" class="bg-indigo-600 text-white px-6 py-2 rounded-lg font-bold shadow-lg hover:bg-indigo-700">+ NOVA ATIVIDADE</button>
+    <header class="bg-white p-6 border-b flex justify-between items-center shadow-sm">
+        <h1 class="text-xl font-black italic">GESTÃO <span class="text-indigo-600">PDE</span></h1>
+        <div class="text-[10px] font-bold text-emerald-600 bg-emerald-50 px-2 py-1 rounded">● SISTEMA ATIVO</div>
     </header>
 
-    <main class="p-6 max-w-[1600px] mx-auto">
-        <div class="bg-white border rounded-xl overflow-hidden shadow-sm">
-            <table class="w-full text-left">
-                <thead class="bg-slate-50 border-b text-[10px] uppercase font-bold text-slate-500">
+    <main class="p-6 max-w-5xl mx-auto">
+        <div class="bg-white rounded-xl shadow-sm overflow-hidden border">
+            <table class="w-full text-left border-collapse">
+                <thead class="bg-slate-50 text-[10px] uppercase text-slate-400 font-bold border-b">
                     <tr>
                         <th class="p-4">Empreendimento</th>
-                        <th class="p-4 w-1/3">Atividade</th>
-                        <th class="p-4">Responsável</th>
+                        <th class="p-4">Atividade</th>
+                        <th class="p-4">Quem</th>
                         <th class="p-4">Status</th>
-                        <th class="p-4 text-right">Ação</th>
                     </tr>
                 </thead>
-                <tbody id="taskTableBody" class="divide-y divide-slate-100 text-sm"></tbody>
+                <tbody id="taskTableBody" class="text-sm text-slate-700">
+                    </tbody>
             </table>
         </div>
     </main>
 
-    <div id="taskModal" class="fixed inset-0 bg-black/50 hidden items-center justify-center p-4 z-50">
-        <div class="bg-white rounded-xl p-8 max-w-lg w-full">
-            <h2 class="text-xl font-bold mb-4">Atividade</h2>
-            <div class="space-y-4">
-                <input type="hidden" id="editIdx">
-                <input type="text" id="editProject" placeholder="Projeto" class="w-full p-2 border rounded">
-                <input type="text" id="editTitle" placeholder="Título" class="w-full p-2 border rounded">
-                <input type="text" id="editOwner" placeholder="Responsável" class="w-full p-2 border rounded">
-                <select id="editStatus" class="w-full p-2 border rounded">
-                    <option value="andamento">Andamento</option>
-                    <option value="concluido">Concluído</option>
-                    <option value="atraso">Atraso</option>
-                </select>
-                <textarea id="editNotes" placeholder="Notas" class="w-full p-2 border rounded"></textarea>
-            </div>
-            <div class="flex justify-end gap-2 mt-6">
-                <button onclick="closeModal()" class="px-4 py-2 text-slate-400">Cancelar</button>
-                <button onclick="saveTask()" class="bg-indigo-600 text-white px-6 py-2 rounded font-bold">Salvar</button>
-            </div>
-        </div>
-    </div>
-
-    <script>
-        window.tasks = [];
-
-        function renderTasks() {
-            const tbody = document.getElementById('taskTableBody');
-            tbody.innerHTML = '';
-            window.tasks.forEach(t => {
-                const tr = document.createElement('tr');
-                tr.innerHTML = `
-                    <td class="p-4 font-bold text-indigo-600 uppercase text-xs">${t.project}</td>
-                    <td class="p-4">
-                        <div class="font-bold">${t.title}</div>
-                        <div class="text-[10px] text-slate-400 mt-1">${t.notes || ''}</div>
-                    </td>
-                    <td class="p-4 font-medium">${t.owner}</td>
-                    <td class="p-4"><span class="status-badge status-${t.status}">${t.status}</span></td>
-                    <td class="p-4 text-right">
-                        <button onclick="editTask(${t.id})" class="text-indigo-600 font-bold text-xs">EDITAR</button>
-                    </td>
-                `;
-                tbody.appendChild(tr);
-            });
-        }
-
-        function updateDropdowns() { /* Placeholder */ }
-
-        function editTask(id) {
-            const t = window.tasks.find(x => x.id === id);
-            document.getElementById('editIdx').value = t.id;
-            document.getElementById('editProject').value = t.project;
-            document.getElementById('editTitle').value = t.title;
-            document.getElementById('editOwner').value = t.owner;
-            document.getElementById('editStatus').value = t.status;
-            document.getElementById('editNotes').value = t.notes || '';
-            document.getElementById('taskModal').classList.replace('hidden', 'flex');
-        }
-
-        function addTask() {
-            document.getElementById('editIdx').value = Date.now();
-            document.getElementById('editProject').value = '';
-            document.getElementById('editTitle').value = '';
-            document.getElementById('editOwner').value = '';
-            document.getElementById('editStatus').value = 'andamento';
-            document.getElementById('editNotes').value = '';
-            document.getElementById('taskModal').classList.replace('hidden', 'flex');
-        }
-
-        function closeModal() { document.getElementById('taskModal').classList.replace('flex', 'hidden'); }
-
-        async function saveTask() {
-            const data = {
-                id: parseInt(document.getElementById('editIdx').value),
-                project: document.getElementById('editProject').value.toUpperCase(),
-                title: document.getElementById('editTitle').value,
-                owner: document.getElementById('editOwner').value,
-                status: document.getElementById('editStatus').value,
-                notes: document.getElementById('editNotes').value
-            };
-            await window._firestoreSetDoc(window._firestoreDoc(window._db, "tasks", String(data.id)), data);
-            closeModal();
-        }
-    </script>
 </body>
 </html>
