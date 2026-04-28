@@ -11,13 +11,13 @@
         body { font-family: 'Inter', sans-serif; background-color: #f1f5f9; }
         .tab-active { border-bottom: 4px solid #4f46e5; color: #4f46e5; font-weight: 700; }
         .tab-inactive { color: #94a3b8; font-weight: 500; }
-        .status-badge { px-2; py-1; border-radius: 6px; font-size: 10px; font-weight: 900; text-transform: uppercase; display: inline-block; padding: 4px 8px; }
+        .status-badge { border-radius: 6px; font-size: 10px; font-weight: 900; text-transform: uppercase; display: inline-block; padding: 4px 8px; }
         .status-pendente { background-color: #e2e8f0; color: #475569; }
         .status-andamento { background-color: #dcfce7; color: #166534; }
         .status-concluido { background-color: #dbeafe; color: #1e40af; }
         .status-atraso { background-color: #fee2e2; color: #991b1b; }
         .status-parado { background-color: #fef3c7; color: #92400e; }
-        .card { background: white; border-radius: 12px; shadow: 0 1px 3px rgba(0,0,0,0.1); border: 1px solid #e2e8f0; }
+        .card { background: white; border-radius: 12px; border: 1px solid #e2e8f0; box-shadow: 0 1px 3px rgba(0,0,0,0.05); }
         #loadingOverlay { position: fixed; inset: 0; background: #0f172a; z-index: 100; display: flex; align-items: center; justify-content: center; flex-direction: column; color: white; }
         .spinner { width: 40px; height: 40px; border: 4px solid #334155; border-top: 4px solid #6366f1; border-radius: 50%; animation: spin 1s linear infinite; margin-bottom: 15px; }
         @keyframes spin { to { transform: rotate(360deg); } }
@@ -40,26 +40,17 @@
         const db = getFirestore(app);
         const tasksCol = collection(db, "tasks");
 
-        // Expor funções para o HTML global
-        window.saveToFirebase = async (data) => {
-            await setDoc(doc(db, "tasks", String(data.id)), data);
-        };
-        window.deleteFromFirebase = async (id) => {
-            await deleteDoc(doc(db, "tasks", String(id)));
-        };
+        window.saveToFirebase = async (data) => { await setDoc(doc(db, "tasks", String(data.id)), data); };
+        window.deleteFromFirebase = async (id) => { await deleteDoc(doc(db, "tasks", String(id))); };
 
-        // Listener em Tempo Real
         onSnapshot(tasksCol, (snap) => {
             window.tasks = [];
             snap.forEach(d => window.tasks.push(d.data()));
             window.tasks.sort((a, b) => b.id - a.id);
-            
             document.getElementById('loadingOverlay').style.display = 'none';
             updateDropdowns();
             renderTasks();
-            if(document.getElementById('tab-content-analise').classList.contains('hidden') === false) {
-                renderCharts();
-            }
+            if(!document.getElementById('tab-content-analise').classList.contains('hidden')) renderCharts();
         });
     </script>
 </head>
@@ -142,9 +133,20 @@
         </section>
 
         <section id="tab-content-analise" class="hidden space-y-6">
-            <div class="grid grid-cols-1 md:grid-cols-4 gap-6">
+            <div class="card p-4 flex flex-wrap gap-4 items-center bg-indigo-50/50">
+                <div class="flex flex-col">
+                    <label class="text-[9px] font-bold text-indigo-400 uppercase mb-1">Filtrar Empreendimento</label>
+                    <select id="dashFilterProject" onchange="renderCharts()" class="text-xs p-2 border rounded-md min-w-[200px] outline-none focus:ring-2 focus:ring-indigo-500"></select>
+                </div>
+                <div class="flex flex-col">
+                    <label class="text-[9px] font-bold text-indigo-400 uppercase mb-1">Filtrar Setor</label>
+                    <select id="dashFilterSector" onchange="renderCharts()" class="text-xs p-2 border rounded-md min-w-[200px] outline-none focus:ring-2 focus:ring-indigo-500"></select>
+                </div>
+            </div>
+
+            <div class="grid grid-cols-1 md:grid-cols-5 gap-6">
                 <div class="card p-6 border-l-4 border-indigo-500">
-                    <p class="text-slate-400 text-[10px] font-bold uppercase mb-1">Total Geral</p>
+                    <p class="text-slate-400 text-[10px] font-bold uppercase mb-1">Total Filtrado</p>
                     <h3 class="text-3xl font-black" id="stat-total">0</h3>
                 </div>
                 <div class="card p-6 border-l-4 border-emerald-500">
@@ -156,14 +158,39 @@
                     <h3 class="text-3xl font-black text-amber-600" id="stat-andamento">0</h3>
                 </div>
                 <div class="card p-6 border-l-4 border-rose-500">
-                    <p class="text-rose-500 text-[10px] font-bold uppercase mb-1">Média de Atraso (Dias)</p>
-                    <h3 class="text-3xl font-black text-rose-600" id="stat-atraso-media">0</h3>
+                    <p class="text-rose-500 text-[10px] font-bold uppercase mb-1">Qtd. Atrasadas</p>
+                    <h3 class="text-3xl font-black text-rose-600" id="stat-atraso-count">0</h3>
+                </div>
+                <div class="card p-6 border-l-4 border-slate-900">
+                    <p class="text-slate-500 text-[10px] font-bold uppercase mb-1">Média Atraso (Dias)</p>
+                    <h3 class="text-3xl font-black text-slate-900" id="stat-atraso-media">0</h3>
                 </div>
             </div>
 
             <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
                 <div class="card p-8"><canvas id="progressChart"></canvas></div>
                 <div class="card p-8"><canvas id="delayChart"></canvas></div>
+            </div>
+
+            <div class="card overflow-hidden">
+                <div class="p-4 border-b border-slate-100 bg-slate-50">
+                    <h3 class="text-xs font-black uppercase text-slate-600 tracking-widest flex items-center gap-2">
+                        <span class="w-2 h-2 bg-rose-500 rounded-full animate-ping"></span> Atividades Críticas (Maior Atraso)
+                    </h3>
+                </div>
+                <div class="overflow-x-auto">
+                    <table class="w-full text-left">
+                        <thead class="text-[9px] uppercase font-bold text-slate-400 border-b">
+                            <tr>
+                                <th class="p-4">Atividade</th>
+                                <th class="p-4">Responsável</th>
+                                <th class="p-4">Empreendimento</th>
+                                <th class="p-4 text-right">Dias de Atraso</th>
+                            </tr>
+                        </thead>
+                        <tbody id="criticalTasksBody" class="text-xs divide-y"></tbody>
+                    </table>
+                </div>
             </div>
         </section>
     </main>
@@ -307,30 +334,41 @@
                 tbody.appendChild(row);
             });
             document.getElementById('showingCount').innerText = `Exibindo ${filtered.length} de ${window.tasks.length}`;
-            updateGeneralStats(filtered);
-        }
-
-        function updateGeneralStats(data) {
-            const total = data.length;
-            const c = data.filter(t => t.status === 'concluido').length;
-            const a = data.filter(t => t.status === 'andamento').length;
-            let totalDelay = 0;
-            data.forEach(t => totalDelay += calculateDelay(t.deadline, t.status));
-            document.getElementById('stat-total').innerText = total;
-            document.getElementById('stat-concluido').innerText = c;
-            document.getElementById('stat-andamento').innerText = a;
-            document.getElementById('stat-atraso-media').innerText = total > 0 ? (totalDelay / total).toFixed(1) : 0;
         }
 
         function renderCharts() {
-            const ctx = document.getElementById('progressChart').getContext('2d');
-            const ctxDelay = document.getElementById('delayChart').getContext('2d');
+            const projF = document.getElementById('dashFilterProject').value;
+            const sectF = document.getElementById('dashFilterSector').value;
+
+            // FILTRAGEM DOS DADOS PARA O DASHBOARD
+            const filteredData = window.tasks.filter(t => {
+                const matchP = projF === 'all' || t.project === projF;
+                const matchS = sectF === 'all' || t.sector === sectF;
+                return matchP && matchS;
+            });
+
+            // ESTATÍSTICAS
+            const total = filteredData.length;
+            const c = filteredData.filter(t => t.status === 'concluido').length;
+            const a = filteredData.filter(t => t.status === 'andamento').length;
+            const atrasadas = filteredData.filter(t => calculateDelay(t.deadline, t.status) > 0);
             
+            let totalDelay = 0;
+            atrasadas.forEach(t => totalDelay += calculateDelay(t.deadline, t.status));
+
+            document.getElementById('stat-total').innerText = total;
+            document.getElementById('stat-concluido').innerText = c;
+            document.getElementById('stat-andamento').innerText = a;
+            document.getElementById('stat-atraso-count').innerText = atrasadas.length;
+            document.getElementById('stat-atraso-media').innerText = atrasadas.length > 0 ? (totalDelay / atrasadas.length).toFixed(1) : 0;
+
+            // GRÁFICO 1: PROGRESSO
+            const ctx = document.getElementById('progressChart').getContext('2d');
             const stats = {
-                concluido: window.tasks.filter(t => t.status === 'concluido').length,
-                andamento: window.tasks.filter(t => t.status === 'andamento').length,
-                atraso: window.tasks.filter(t => t.status === 'atraso').length,
-                outros: window.tasks.filter(t => !['concluido','andamento','atraso'].includes(t.status)).length
+                concluido: c,
+                andamento: a,
+                atraso: atrasadas.length,
+                outros: filteredData.filter(t => !['concluido','andamento'].includes(t.status) && calculateDelay(t.deadline, t.status) === 0).length
             };
 
             if(mainChart) mainChart.destroy();
@@ -340,23 +378,47 @@
                     labels: ['Concluído', 'Andamento', 'Atraso', 'Outros'],
                     datasets: [{ data: Object.values(stats), backgroundColor: ['#3b82f6', '#fbbf24', '#ef4444', '#cbd5e1'] }]
                 },
-                options: { plugins: { legend: { position: 'bottom' } } }
+                options: { plugins: { title: { display: true, text: 'Distribuição de Status' }, legend: { position: 'bottom' } } }
             });
 
+            // GRÁFICO 2: ATRASO POR PROJETO (Dos itens filtrados)
             const projDelays = {};
-            window.tasks.forEach(t => {
+            filteredData.forEach(t => {
                 const d = calculateDelay(t.deadline, t.status);
-                projDelays[t.project] = (projDelays[t.project] || 0) + d;
+                if(d > 0) projDelays[t.project] = (projDelays[t.project] || 0) + d;
             });
 
+            const ctxDelay = document.getElementById('delayChart').getContext('2d');
             if(delayChart) delayChart.destroy();
             delayChart = new Chart(ctxDelay, {
                 type: 'bar',
-                data: { labels: Object.keys(projDelays), datasets: [{ label: 'Dias de Atraso', data: Object.values(projDelays), backgroundColor: '#ef4444' }] },
-                options: { indexAxis: 'y' }
+                data: { labels: Object.keys(projDelays), datasets: [{ label: 'Total Dias de Atraso', data: Object.values(projDelays), backgroundColor: '#ef4444' }] },
+                options: { indexAxis: 'y', plugins: { title: { display: true, text: 'Acúmulo de Atraso por Empreendimento' } } }
+            });
+
+            // TABELA DE CRITICIDADE
+            const criticalBody = document.getElementById('criticalTasksBody');
+            criticalBody.innerHTML = '';
+            
+            const sortedCritical = [...filteredData]
+                .map(t => ({...t, delay: calculateDelay(t.deadline, t.status)}))
+                .filter(t => t.delay > 0)
+                .sort((a, b) => b.delay - a.delay)
+                .slice(0, 5); // Mostrar top 5 mais críticos
+
+            sortedCritical.forEach(t => {
+                const tr = document.createElement('tr');
+                tr.innerHTML = `
+                    <td class="p-4 font-bold">${t.title}</td>
+                    <td class="p-4 text-slate-500">${t.owner}</td>
+                    <td class="p-4"><span class="text-[10px] font-black text-indigo-600">${t.project}</span></td>
+                    <td class="p-4 text-right font-black text-rose-600 italic">${t.delay} dias</td>
+                `;
+                criticalBody.appendChild(tr);
             });
         }
 
+        // FUNÇÕES DE UI E MODAL (MANTIDAS)
         function editTask(id) {
             const t = window.tasks.find(x => x.id === id);
             document.getElementById('editIdx').value = id;
@@ -424,16 +486,33 @@
 
         function updateDropdowns() {
             const projects = [...new Set(window.tasks.map(t => t.project))].sort();
-            const filter = document.getElementById('filterProject');
-            const datalist = document.getElementById('projectsList');
-            const current = filter.value;
-            filter.innerHTML = '<option value="all">Todos os Projetos</option>';
-            datalist.innerHTML = '';
+            const sectors = [...new Set(window.tasks.map(t => t.sector).filter(s => s))].sort();
+            
+            // Filtros da Lista
+            const fProj = document.getElementById('filterProject');
+            const dList = document.getElementById('projectsList');
+            fProj.innerHTML = '<option value="all">Todos os Projetos</option>';
+            dList.innerHTML = '';
             projects.forEach(p => {
-                filter.innerHTML += `<option value="${p}">${p}</option>`;
-                datalist.innerHTML += `<option value="${p}">`;
+                fProj.innerHTML += `<option value="${p}">${p}</option>`;
+                dList.innerHTML += `<option value="${p}">`;
             });
-            filter.value = current || 'all';
+
+            // Filtros do Dashboard
+            const dashProj = document.getElementById('dashFilterProject');
+            const dashSect = document.getElementById('dashFilterSector');
+            
+            const curP = dashProj.value;
+            const curS = dashSect.value;
+
+            dashProj.innerHTML = '<option value="all">Todos os Empreendimentos</option>';
+            projects.forEach(p => dashProj.innerHTML += `<option value="${p}">${p}</option>`);
+            
+            dashSect.innerHTML = '<option value="all">Todos os Setores</option>';
+            sectors.forEach(s => dashSect.innerHTML += `<option value="${s}">${s}</option>`);
+
+            dashProj.value = curP || 'all';
+            dashSect.value = curS || 'all';
         }
     </script>
 </body>
