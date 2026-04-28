@@ -21,6 +21,8 @@
         #loadingOverlay { position: fixed; inset: 0; background: #0f172a; z-index: 100; display: flex; align-items: center; justify-content: center; flex-direction: column; color: white; }
         .spinner { width: 40px; height: 40px; border: 4px solid #334155; border-top: 4px solid #6366f1; border-radius: 50%; animation: spin 1s linear infinite; margin-bottom: 15px; }
         @keyframes spin { to { transform: rotate(360deg); } }
+        /* Ajuste para gráficos menores */
+        .chart-container { position: relative; margin: auto; height: 250px; width: 100%; }
     </style>
 
     <script type="module">
@@ -89,11 +91,15 @@
                 <div class="flex flex-wrap gap-4 items-center">
                     <div class="flex flex-col">
                         <label class="text-[9px] font-bold text-slate-400 uppercase mb-1">Empreendimento</label>
-                        <select id="filterProject" onchange="renderTasks()" class="text-xs p-2 border rounded-md min-w-[200px] outline-none focus:ring-2 focus:ring-indigo-500"></select>
+                        <select id="filterProject" onchange="renderTasks()" class="text-xs p-2 border rounded-md min-w-[180px] outline-none focus:ring-2 focus:ring-indigo-500"></select>
+                    </div>
+                    <div class="flex flex-col">
+                        <label class="text-[9px] font-bold text-slate-400 uppercase mb-1">Responsável</label>
+                        <select id="filterOwner" onchange="renderTasks()" class="text-xs p-2 border rounded-md min-w-[150px] outline-none focus:ring-2 focus:ring-indigo-500"></select>
                     </div>
                     <div class="flex flex-col">
                         <label class="text-[9px] font-bold text-slate-400 uppercase mb-1">Status</label>
-                        <select id="filterStatus" onchange="renderTasks()" class="text-xs p-2 border rounded-md min-w-[150px] outline-none">
+                        <select id="filterStatus" onchange="renderTasks()" class="text-xs p-2 border rounded-md min-w-[120px] outline-none">
                             <option value="all">Todos</option>
                             <option value="pendente">Pendente</option>
                             <option value="andamento">Andamento</option>
@@ -104,7 +110,7 @@
                     </div>
                     <div class="flex flex-col">
                         <label class="text-[9px] font-bold text-slate-400 uppercase mb-1">Busca Rápida</label>
-                        <input type="text" id="searchTerm" oninput="renderTasks()" placeholder="Atividade ou responsável..." class="text-xs p-2 border rounded-md min-w-[250px] outline-none">
+                        <input type="text" id="searchTerm" oninput="renderTasks()" placeholder="Atividade ou responsável..." class="text-xs p-2 border rounded-md min-w-[200px] outline-none">
                     </div>
                 </div>
                 <div class="text-right">
@@ -142,6 +148,10 @@
                     <label class="text-[9px] font-bold text-indigo-400 uppercase mb-1">Filtrar Setor</label>
                     <select id="dashFilterSector" onchange="renderCharts()" class="text-xs p-2 border rounded-md min-w-[200px] outline-none focus:ring-2 focus:ring-indigo-500"></select>
                 </div>
+                <div class="flex flex-col">
+                    <label class="text-[9px] font-bold text-indigo-400 uppercase mb-1">Qtd. Itens nas Listas</label>
+                    <input type="number" id="dashLimit" value="5" min="1" onchange="renderCharts()" class="text-xs p-2 border rounded-md w-[80px] outline-none">
+                </div>
             </div>
 
             <div class="grid grid-cols-1 md:grid-cols-5 gap-6">
@@ -168,28 +178,53 @@
             </div>
 
             <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                <div class="card p-8"><canvas id="progressChart"></canvas></div>
-                <div class="card p-8"><canvas id="delayChart"></canvas></div>
+                <div class="card p-4">
+                    <div class="chart-container"><canvas id="progressChart"></canvas></div>
+                </div>
+                <div class="card p-4">
+                    <div class="chart-container"><canvas id="delayChart"></canvas></div>
+                </div>
             </div>
 
-            <div class="card overflow-hidden">
-                <div class="p-4 border-b border-slate-100 bg-slate-50">
-                    <h3 class="text-xs font-black uppercase text-slate-600 tracking-widest flex items-center gap-2">
-                        <span class="w-2 h-2 bg-rose-500 rounded-full animate-ping"></span> Atividades Críticas (Maior Atraso)
-                    </h3>
+            <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                <div class="card overflow-hidden">
+                    <div class="p-4 border-b border-slate-100 bg-slate-50">
+                        <h3 class="text-xs font-black uppercase text-slate-600 tracking-widest flex items-center gap-2">
+                            <span class="w-2 h-2 bg-rose-500 rounded-full animate-ping"></span> Atividades Críticas
+                        </h3>
+                    </div>
+                    <div class="overflow-x-auto">
+                        <table class="w-full text-left">
+                            <thead class="text-[9px] uppercase font-bold text-slate-400 border-b">
+                                <tr>
+                                    <th class="p-4">Atividade</th>
+                                    <th class="p-4">Empreendimento</th>
+                                    <th class="p-4 text-right">Atraso</th>
+                                </tr>
+                            </thead>
+                            <tbody id="criticalTasksBody" class="text-xs divide-y"></tbody>
+                        </table>
+                    </div>
                 </div>
-                <div class="overflow-x-auto">
-                    <table class="w-full text-left">
-                        <thead class="text-[9px] uppercase font-bold text-slate-400 border-b">
-                            <tr>
-                                <th class="p-4">Atividade</th>
-                                <th class="p-4">Responsável</th>
-                                <th class="p-4">Empreendimento</th>
-                                <th class="p-4 text-right">Dias de Atraso</th>
-                            </tr>
-                        </thead>
-                        <tbody id="criticalTasksBody" class="text-xs divide-y"></tbody>
-                    </table>
+
+                <div class="card overflow-hidden">
+                    <div class="p-4 border-b border-slate-100 bg-slate-50">
+                        <h3 class="text-xs font-black uppercase text-slate-600 tracking-widest flex items-center gap-2">
+                            <span class="w-2 h-2 bg-indigo-500 rounded-full"></span> Próximas a Vencer
+                        </h3>
+                    </div>
+                    <div class="overflow-x-auto">
+                        <table class="w-full text-left">
+                            <thead class="text-[9px] uppercase font-bold text-slate-400 border-b">
+                                <tr>
+                                    <th class="p-4">Atividade</th>
+                                    <th class="p-4">Prazo</th>
+                                    <th class="p-4 text-right">Status</th>
+                                </tr>
+                            </thead>
+                            <tbody id="upcomingTasksBody" class="text-xs divide-y"></tbody>
+                        </table>
+                    </div>
                 </div>
             </div>
         </section>
@@ -290,15 +325,17 @@
         function renderTasks() {
             const tbody = document.getElementById('taskTableBody');
             const projectFilter = document.getElementById('filterProject').value;
+            const ownerFilter = document.getElementById('filterOwner').value;
             const statusFilter = document.getElementById('filterStatus').value;
             const search = document.getElementById('searchTerm').value.toLowerCase();
             
             tbody.innerHTML = '';
             const filtered = window.tasks.filter(t => {
                 const mP = projectFilter === 'all' || t.project === projectFilter;
+                const mO = ownerFilter === 'all' || t.owner === ownerFilter;
                 const mS = statusFilter === 'all' || t.status === statusFilter;
                 const mSearch = (t.title||"").toLowerCase().includes(search) || (t.owner||"").toLowerCase().includes(search);
-                return mP && mS && mSearch;
+                return mP && mO && mS && mSearch;
             });
 
             filtered.forEach(t => {
@@ -339,8 +376,8 @@
         function renderCharts() {
             const projF = document.getElementById('dashFilterProject').value;
             const sectF = document.getElementById('dashFilterSector').value;
+            const limit = parseInt(document.getElementById('dashLimit').value) || 5;
 
-            // FILTRAGEM DOS DADOS PARA O DASHBOARD
             const filteredData = window.tasks.filter(t => {
                 const matchP = projF === 'all' || t.project === projF;
                 const matchS = sectF === 'all' || t.sector === sectF;
@@ -378,10 +415,13 @@
                     labels: ['Concluído', 'Andamento', 'Atraso', 'Outros'],
                     datasets: [{ data: Object.values(stats), backgroundColor: ['#3b82f6', '#fbbf24', '#ef4444', '#cbd5e1'] }]
                 },
-                options: { plugins: { title: { display: true, text: 'Distribuição de Status' }, legend: { position: 'bottom' } } }
+                options: { 
+                    maintainAspectRatio: false,
+                    plugins: { title: { display: true, text: 'Distribuição de Status' }, legend: { position: 'bottom', labels: { boxWidth: 10, font: { size: 10 } } } } 
+                }
             });
 
-            // GRÁFICO 2: ATRASO POR PROJETO (Dos itens filtrados)
+            // GRÁFICO 2: ATRASO POR PROJETO
             const projDelays = {};
             filteredData.forEach(t => {
                 const d = calculateDelay(t.deadline, t.status);
@@ -392,33 +432,76 @@
             if(delayChart) delayChart.destroy();
             delayChart = new Chart(ctxDelay, {
                 type: 'bar',
-                data: { labels: Object.keys(projDelays), datasets: [{ label: 'Total Dias de Atraso', data: Object.values(projDelays), backgroundColor: '#ef4444' }] },
-                options: { indexAxis: 'y', plugins: { title: { display: true, text: 'Acúmulo de Atraso por Empreendimento' } } }
+                data: { labels: Object.keys(projDelays), datasets: [{ label: 'Dias Atraso', data: Object.values(projDelays), backgroundColor: '#ef4444' }] },
+                options: { 
+                    maintainAspectRatio: false,
+                    indexAxis: 'y', 
+                    plugins: { title: { display: true, text: 'Atraso por Empreendimento' }, legend: { display: false } },
+                    scales: { x: { ticks: { font: { size: 9 } } }, y: { ticks: { font: { size: 9 } } } }
+                }
             });
 
-            // TABELA DE CRITICIDADE
+            // TABELA CRITICIDADE (MAIOR ATRASO)
             const criticalBody = document.getElementById('criticalTasksBody');
             criticalBody.innerHTML = '';
-            
-            const sortedCritical = [...filteredData]
+            [...filteredData]
                 .map(t => ({...t, delay: calculateDelay(t.deadline, t.status)}))
                 .filter(t => t.delay > 0)
                 .sort((a, b) => b.delay - a.delay)
-                .slice(0, 5); // Mostrar top 5 mais críticos
+                .slice(0, limit)
+                .forEach(t => {
+                    criticalBody.innerHTML += `<tr><td class="p-4 font-bold">${t.title}</td><td class="p-4 text-[10px] text-indigo-600">${t.project}</td><td class="p-4 text-right font-black text-rose-600">${t.delay}d</td></tr>`;
+                });
 
-            sortedCritical.forEach(t => {
-                const tr = document.createElement('tr');
-                tr.innerHTML = `
-                    <td class="p-4 font-bold">${t.title}</td>
-                    <td class="p-4 text-slate-500">${t.owner}</td>
-                    <td class="p-4"><span class="text-[10px] font-black text-indigo-600">${t.project}</span></td>
-                    <td class="p-4 text-right font-black text-rose-600 italic">${t.delay} dias</td>
-                `;
-                criticalBody.appendChild(tr);
-            });
+            // TABELA PRÓXIMAS A VENCER (NÃO CONCLUÍDAS)
+            const upcomingBody = document.getElementById('upcomingTasksBody');
+            upcomingBody.innerHTML = '';
+            [...filteredData]
+                .filter(t => t.status !== 'concluido' && t.deadline)
+                .sort((a, b) => new Date(a.deadline) - new Date(b.deadline))
+                .slice(0, limit)
+                .forEach(t => {
+                    upcomingBody.innerHTML += `<tr><td class="p-4 font-bold">${t.title}</td><td class="p-4">${formatDate(t.deadline)}</td><td class="p-4 text-right"><span class="status-badge status-${t.status}">${t.status}</span></td></tr>`;
+                });
         }
 
-        // FUNÇÕES DE UI E MODAL (MANTIDAS)
+        function updateDropdowns() {
+            const projects = [...new Set(window.tasks.map(t => t.project))].sort();
+            const sectors = [...new Set(window.tasks.map(t => t.sector).filter(s => s))].sort();
+            const owners = [...new Set(window.tasks.map(t => t.owner).filter(o => o))].sort();
+            
+            // Filtros da Lista
+            const fProj = document.getElementById('filterProject');
+            const fOwner = document.getElementById('filterOwner');
+            const dList = document.getElementById('projectsList');
+            
+            fProj.innerHTML = '<option value="all">Todos os Projetos</option>';
+            fOwner.innerHTML = '<option value="all">Todos os Responsáveis</option>';
+            dList.innerHTML = '';
+            
+            projects.forEach(p => {
+                fProj.innerHTML += `<option value="${p}">${p}</option>`;
+                dList.innerHTML += `<option value="${p}">`;
+            });
+            owners.forEach(o => fOwner.innerHTML += `<option value="${o}">${o}</option>`);
+
+            // Filtros do Dashboard
+            const dashProj = document.getElementById('dashFilterProject');
+            const dashSect = document.getElementById('dashFilterSector');
+            const curP = dashProj.value;
+            const curS = dashSect.value;
+
+            dashProj.innerHTML = '<option value="all">Todos os Empreendimentos</option>';
+            projects.forEach(p => dashProj.innerHTML += `<option value="${p}">${p}</option>`);
+            
+            dashSect.innerHTML = '<option value="all">Todos os Setores</option>';
+            sectors.forEach(s => dashSect.innerHTML += `<option value="${s}">${s}</option>`);
+
+            dashProj.value = curP || 'all';
+            dashSect.value = curS || 'all';
+        }
+
+        // Funções de Modal e Crud (Mantidas idênticas ao original)
         function editTask(id) {
             const t = window.tasks.find(x => x.id === id);
             document.getElementById('editIdx').value = id;
@@ -482,37 +565,6 @@
             await window.saveToFirebase(data);
             btn.innerText = "Salvar";
             closeModal();
-        }
-
-        function updateDropdowns() {
-            const projects = [...new Set(window.tasks.map(t => t.project))].sort();
-            const sectors = [...new Set(window.tasks.map(t => t.sector).filter(s => s))].sort();
-            
-            // Filtros da Lista
-            const fProj = document.getElementById('filterProject');
-            const dList = document.getElementById('projectsList');
-            fProj.innerHTML = '<option value="all">Todos os Projetos</option>';
-            dList.innerHTML = '';
-            projects.forEach(p => {
-                fProj.innerHTML += `<option value="${p}">${p}</option>`;
-                dList.innerHTML += `<option value="${p}">`;
-            });
-
-            // Filtros do Dashboard
-            const dashProj = document.getElementById('dashFilterProject');
-            const dashSect = document.getElementById('dashFilterSector');
-            
-            const curP = dashProj.value;
-            const curS = dashSect.value;
-
-            dashProj.innerHTML = '<option value="all">Todos os Empreendimentos</option>';
-            projects.forEach(p => dashProj.innerHTML += `<option value="${p}">${p}</option>`);
-            
-            dashSect.innerHTML = '<option value="all">Todos os Setores</option>';
-            sectors.forEach(s => dashSect.innerHTML += `<option value="${s}">${s}</option>`);
-
-            dashProj.value = curP || 'all';
-            dashSect.value = curS || 'all';
         }
     </script>
 </body>
