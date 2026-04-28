@@ -1,0 +1,541 @@
+<!DOCTYPE html>
+<html lang="pt-br">
+<head>
+    <meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Gestão Multiprojetos - PDE</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+
+    <script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js";
+        import {
+            getFirestore,
+            collection,
+            getDocs,
+            setDoc,
+            deleteDoc,
+            doc,
+            onSnapshot
+        } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js";
+
+        const firebaseConfig = {
+            apiKey: "AIzaSyBshYvEFAzYwQPI8R2JTx02B-30Lpriilc",
+            authDomain: "bemf-pde.firebaseapp.com",
+            projectId: "bemf-pde",
+            storageBucket: "bemf-pde.firebasestorage.app",
+            messagingSenderId: "742435947116",
+            appId: "1:742435947116:web:d01298e4918b74ad108e49",
+            measurementId: "G-5YK0X75FBJ"
+        };
+
+        const app = initializeApp(firebaseConfig);
+        const db = getFirestore(app);
+        const tasksCol = collection(db, "tasks");
+
+        const initialTasks = [
+            { id: 101, project: "BE DUMONT", sector: "INCORPORAÇÃO", title: "Reprotocolo da LAC (IAM)", owner: "Isabela", start: "2026-03-23", deadline: "2026-04-27", status: "concluido", nextStep: "Arquivar documentação", problems: "Nenhum", notes: "23/03: Fazer reprotocolo até dia 27.\n06/04: Reprotocolo realizado.\n27/04: LAC Aprovada." },
+            { id: 102, project: "BE DUMONT", sector: "ENGENHARIA", title: "Terraplanagem / Ekolist", owner: "Isabela", start: "2026-03-23", deadline: "2026-05-15", status: "andamento", nextStep: "Enviar projeto final para Ekolist", problems: "Atraso no laudo GEO inicial", notes: "23/03: Elaboração de contrato.\n06/04: Laudo GEO recebido, correções BIM feitas." },
+            { id: 103, project: "BE DUMONT", sector: "FINANCEIRO", title: "Captação de Recursos (Fundos)", owner: "Sérgio", start: "2026-03-23", deadline: "2026-05-30", status: "andamento", nextStep: "Finalizar negociação com Chroma", problems: "Declínio de fundos anteriores (Archx)", notes: "23/03: Archx declinou.\n20/04: Realizando modelagens.\n27/04: Avançando com Chroma." },
+            { id: 104, project: "BE DUMONT", sector: "ADMINISTRATIVO", title: "Seguro Obra", owner: "Sérgio", start: "2026-03-23", deadline: "2026-05-01", status: "atraso", nextStep: "Obter cronograma da engenharia", problems: "Falta de documentação da carta convite", notes: "23/03: Aguardando docs.\n13/04: Aguardando cronograma.\n27/04: Sergio assumiu a demanda." }
+        ];
+
+        window._db = db;
+        window._tasksCol = tasksCol;
+        window._firestoreDoc = doc;
+        window._firestoreSetDoc = setDoc;
+        window._firestoreDeleteDoc = deleteDoc;
+        window._firestoreOnSnapshot = onSnapshot;
+
+        // FUNÇÃO CORRIGIDA PARA EVITAR CARREGAMENTO INFINITO
+        async function initFirebase() {
+            const loader = document.getElementById('loadingOverlay');
+            loader.classList.remove('hidden');
+
+            try {
+                // Tenta buscar os documentos uma vez para verificar se o banco está vazio
+                const snapshot = await getDocs(tasksCol);
+
+                if (snapshot.empty) {
+                    console.log("Banco vazio, inserindo dados iniciais...");
+                    for (const t of initialTasks) {
+                        await setDoc(doc(db, "tasks", String(t.id)), t);
+                    }
+                }
+
+                // Configura o listener em tempo real
+                onSnapshot(tasksCol, (snap) => {
+                    window.tasks = [];
+                    snap.forEach(d => window.tasks.push(d.data()));
+                    window.tasks.sort((a, b) => a.id - b.id);
+                    
+                    // Esconde o loader assim que os dados (mesmo que vazios) cheguem
+                    loader.classList.add('hidden');
+                    
+                    if (typeof updateDropdowns === 'function') {
+                        updateDropdowns();
+                        renderTasks();
+                    }
+                }, (error) => {
+                    // Caso ocorra erro no snapshot (ex: permissão negada)
+                    loader.classList.add('hidden');
+                    console.error("Erro no Firebase Snapshot:", error);
+                });
+
+            } catch (error) {
+                // Caso ocorra erro na conexão inicial
+                loader.classList.add('hidden');
+                console.error("Erro ao conectar ao Firebase:", error);
+                alert("Erro de conexão. Verifique o console ou as Regras do Firebase.");
+            }
+        }
+
+        document.addEventListener('DOMContentLoaded', initFirebase);
+    </script>
+
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
+        body { font-family: 'Inter', sans-serif; background-color: #f1f5f9; }
+        .tab-active { border-bottom: 4px solid #4f46e5; color: #4f46e5; font-weight: 700; }
+        .tab-inactive { color: #94a3b8; font-weight: 500; }
+        .tab-inactive:hover { color: #475569; }
+        .status-badge { padding: 2px 8px; border-radius: 4px; font-size: 10px; font-weight: 900; text-transform: uppercase; }
+        .status-pendente { background-color: #e2e8f0; color: #475569; }
+        .status-andamento { background-color: #dcfce7; color: #166534; }
+        .status-concluido { background-color: #dbeafe; color: #1e40af; }
+        .status-atraso { background-color: #fee2e2; color: #991b1b; }
+        .status-parado { background-color: #fef3c7; color: #92400e; }
+        .card { background: white; border-radius: 0.75rem; box-shadow: 0 1px 3px rgba(0,0,0,0.07); border: 1px solid #e2e8f0; }
+        input, select, textarea { border: 1px solid #e2e8f0; border-radius: 0.5rem; padding: 0.5rem; outline: none; }
+        input:focus, select:focus, textarea:focus { ring: 2px solid #6366f1; border-color: #6366f1; }
+        #loadingOverlay { position: fixed; inset: 0; background: rgba(15,23,42,0.6); z-index: 100; display: flex; align-items: center; justify-content: center; flex-direction: column; gap: 1rem; }
+        .spinner { width: 40px; height: 40px; border: 4px solid #e2e8f0; border-top-color: #4f46e5; border-radius: 50%; animation: spin 0.8s linear infinite; }
+        @keyframes spin { to { transform: rotate(360deg); } }
+    </style>
+</head>
+<body class="text-slate-800">
+
+    <div id="loadingOverlay">
+        <div class="spinner"></div>
+        <p class="text-white font-bold text-sm">Conectando ao banco de dados...</p>
+    </div>
+
+    <header class="bg-white border-b border-slate-200 sticky top-0 z-40">
+        <div class="max-w-[1600px] mx-auto px-6 py-4 flex flex-col md:flex-row justify-between items-center gap-4">
+            <div>
+                <h1 class="text-2xl font-black text-slate-900 tracking-tighter uppercase italic">Gestão PDE <span class="text-indigo-600">Projetos</span></h1>
+                <p class="text-slate-400 text-xs font-medium">Controle de prazos, responsáveis e obstáculos
+                    <span class="inline-flex items-center gap-1 ml-2 text-emerald-600 font-bold">
+                        <span id="syncDot" class="w-2 h-2 rounded-full bg-emerald-400 inline-block"></span>
+                        Dados Salvos na Nuvem (Tempo Real)
+                    </span>
+                </p>
+            </div>
+            <div class="flex items-center gap-3">
+                <nav class="flex gap-8 mr-8">
+                    <button onclick="switchTab('lista')" id="btn-tab-lista" class="pb-2 tab-active transition-all">LISTA DE ATIVIDADES</button>
+                    <button onclick="switchTab('analise')" id="btn-tab-analise" class="pb-2 tab-inactive transition-all">ANÁLISE E DASHBOARD</button>
+                </nav>
+                <button onclick="addTask()" class="bg-indigo-600 hover:bg-indigo-700 text-white px-5 py-2 rounded-lg font-bold text-sm shadow-lg transition-all">
+                    + NOVA ATIVIDADE
+                </button>
+            </div>
+        </div>
+    </header>
+
+    <main class="max-w-[1600px] mx-auto p-6">
+        <section id="tab-content-lista" class="space-y-6">
+            <div class="card p-4 flex flex-wrap gap-4 items-center justify-between">
+                <div class="flex flex-wrap gap-4 items-center">
+                    <div class="flex flex-col">
+                        <label class="text-[10px] font-bold text-slate-400 uppercase mb-1">Empreendimento</label>
+                        <select id="filterProject" onchange="renderTasks()" class="text-sm min-w-[200px]">
+                            <option value="all">Todos os Projetos</option>
+                        </select>
+                    </div>
+                    <div class="flex flex-col">
+                        <label class="text-[10px] font-bold text-slate-400 uppercase mb-1">Status</label>
+                        <select id="filterStatus" onchange="renderTasks()" class="text-sm min-w-[150px]">
+                            <option value="all">Todos</option>
+                            <option value="pendente">Pendente</option>
+                            <option value="andamento">Andamento</option>
+                            <option value="concluido">Concluído</option>
+                            <option value="atraso">Atraso</option>
+                            <option value="parado">Parado</option>
+                        </select>
+                    </div>
+                    <div class="flex flex-col">
+                        <label class="text-[10px] font-bold text-slate-400 uppercase mb-1">Busca Rápida</label>
+                        <input type="text" id="searchTerm" oninput="renderTasks()" placeholder="Atividade ou responsável..." class="text-sm min-w-[250px]">
+                    </div>
+                </div>
+                <div class="text-right">
+                    <span id="showingCount" class="text-xs font-bold text-slate-400">Carregando...</span>
+                </div>
+            </div>
+
+            <div class="card overflow-hidden">
+                <div class="overflow-x-auto">
+                    <table class="w-full text-left border-collapse">
+                        <thead class="bg-slate-50 border-b border-slate-200">
+                            <tr class="text-[10px] uppercase text-slate-500 font-bold tracking-widest">
+                                <th class="py-4 px-6">Empreendimento / Setor</th>
+                                <th class="py-4 px-4 w-1/4">Atividade &amp; Histórico</th>
+                                <th class="py-4 px-4">Responsável</th>
+                                <th class="py-4 px-4">Próximo Passo / Problemas</th>
+                                <th class="py-4 px-4">Cronograma (Dias)</th>
+                                <th class="py-4 px-4">Status</th>
+                                <th class="py-4 px-6 text-right">Ação</th>
+                            </tr>
+                        </thead>
+                        <tbody id="taskTableBody" class="text-sm divide-y divide-slate-100"></tbody>
+                    </table>
+                </div>
+            </div>
+        </section>
+
+        <section id="tab-content-analise" class="space-y-6 hidden">
+            <div class="grid grid-cols-1 md:grid-cols-4 gap-6">
+                <div class="card p-6 border-l-4 border-indigo-500">
+                    <p class="text-slate-400 text-xs font-bold uppercase mb-1">Total Geral</p>
+                    <h3 class="text-3xl font-black" id="stat-total">0</h3>
+                </div>
+                <div class="card p-6 border-l-4 border-emerald-500">
+                    <p class="text-emerald-500 text-xs font-bold uppercase mb-1">Concluídas</p>
+                    <h3 class="text-3xl font-black text-emerald-600" id="stat-concluido">0</h3>
+                </div>
+                <div class="card p-6 border-l-4 border-amber-500">
+                    <p class="text-amber-500 text-xs font-bold uppercase mb-1">Em Andamento</p>
+                    <h3 class="text-3xl font-black text-amber-600" id="stat-andamento">0</h3>
+                </div>
+                <div class="card p-6 border-l-4 border-rose-500">
+                    <p class="text-rose-500 text-xs font-bold uppercase mb-1">Média de Atraso (Dias)</p>
+                    <h3 class="text-3xl font-black text-rose-600" id="stat-atraso-media">0.0</h3>
+                </div>
+            </div>
+            <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                <div class="card p-8">
+                    <h4 class="text-sm font-bold text-slate-500 uppercase mb-8 text-center tracking-widest">Distribuição de Status</h4>
+                    <div class="h-[300px] flex justify-center">
+                        <canvas id="progressChart"></canvas>
+                    </div>
+                </div>
+                <div class="card p-8 flex flex-col">
+                    <h4 class="text-sm font-bold text-slate-500 uppercase mb-8 text-center tracking-widest">Top Atrasos por Empreendimento</h4>
+                    <div class="h-[300px]">
+                        <canvas id="delayChart"></canvas>
+                    </div>
+                </div>
+            </div>
+        </section>
+    </main>
+
+    <div id="taskModal" class="fixed inset-0 bg-slate-900/80 hidden items-center justify-center p-4 z-50 backdrop-blur-sm">
+        <div class="bg-white rounded-2xl max-w-3xl w-full shadow-2xl overflow-hidden">
+            <div class="p-6 border-b border-slate-100 flex justify-between items-center bg-slate-50">
+                <h2 id="modalTitle" class="text-xl font-black uppercase tracking-tight">Editar Atividade</h2>
+                <button onclick="closeModal()" class="text-slate-400 hover:text-slate-600 text-2xl">✕</button>
+            </div>
+            <div class="p-8 grid grid-cols-1 md:grid-cols-2 gap-6 overflow-y-auto max-h-[70vh]">
+                <input type="hidden" id="editIdx" value="">
+                <div class="md:col-span-1">
+                    <label class="block text-[10px] font-bold text-slate-400 uppercase mb-1">Empreendimento</label>
+                    <input list="projectsList" id="editProject" class="w-full bg-slate-50">
+                    <datalist id="projectsList"></datalist>
+                </div>
+                <div class="md:col-span-1">
+                    <label class="block text-[10px] font-bold text-slate-400 uppercase mb-1">Setor Responsável</label>
+                    <input type="text" id="editSector" class="w-full bg-slate-50" placeholder="Ex: Incorporação, Engenharia...">
+                </div>
+                <div class="md:col-span-2">
+                    <label class="block text-[10px] font-bold text-slate-400 uppercase mb-1">Título da Atividade</label>
+                    <input type="text" id="editTitle" class="w-full bg-slate-50 font-bold" placeholder="Nome da tarefa">
+                </div>
+                <div>
+                    <label class="block text-[10px] font-bold text-slate-400 uppercase mb-1">Responsável (Pessoa)</label>
+                    <input type="text" id="editOwner" class="w-full bg-slate-50">
+                </div>
+                <div>
+                    <label class="block text-[10px] font-bold text-slate-400 uppercase mb-1">Status Atual</label>
+                    <select id="editStatus" class="w-full bg-slate-50 font-bold">
+                        <option value="pendente">Pendente</option>
+                        <option value="andamento">Em Andamento</option>
+                        <option value="concluido">Concluído</option>
+                        <option value="atraso">Atraso</option>
+                        <option value="parado">Parado</option>
+                    </select>
+                </div>
+                <div>
+                    <label class="block text-[10px] font-bold text-slate-400 uppercase mb-1">Data Inicial Planejada</label>
+                    <input type="date" id="editStart" class="w-full bg-slate-50">
+                </div>
+                <div>
+                    <label class="block text-[10px] font-bold text-slate-400 uppercase mb-1">Data Final (Prazo)</label>
+                    <input type="date" id="editDeadline" class="w-full bg-slate-50">
+                </div>
+                <div class="md:col-span-2">
+                    <label class="block text-[10px] font-bold text-slate-400 uppercase mb-1">Próximo Passo</label>
+                    <input type="text" id="editNextStep" class="w-full bg-slate-50" style="border-left: 4px solid #818cf8;">
+                </div>
+                <div class="md:col-span-2">
+                    <label class="block text-[10px] font-bold text-slate-400 uppercase mb-1">Problemas Enfrentados</label>
+                    <input type="text" id="editProblems" class="w-full bg-slate-50" style="border-left: 4px solid #fb7185;">
+                </div>
+                <div class="md:col-span-2">
+                    <label class="block text-[10px] font-bold text-slate-400 uppercase mb-1">Histórico / Notas</label>
+                    <textarea id="editNotes" rows="4" class="w-full bg-slate-50 text-xs" placeholder="Descreva o andamento..."></textarea>
+                </div>
+            </div>
+            <div class="p-6 bg-slate-50 border-t border-slate-100 flex justify-end gap-4">
+                <button onclick="deleteTask()" id="btnDelete" class="mr-auto px-4 py-2 text-rose-500 font-bold uppercase text-[10px] hover:bg-rose-50 rounded-lg">Excluir</button>
+                <button onclick="closeModal()" class="px-6 py-2 text-slate-500 font-bold uppercase text-xs">Cancelar</button>
+                <button onclick="saveTask()" class="bg-indigo-600 text-white px-10 py-3 rounded-xl font-black uppercase text-xs shadow-lg hover:bg-indigo-700 transition-all">Salvar Alterações</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const TODAY = new Date("2026-04-28");
+        window.tasks = [];
+        let mainChart, delayChart;
+
+        async function saveToFirebase(taskData) {
+            await window._firestoreSetDoc(
+                window._firestoreDoc(window._db, "tasks", String(taskData.id)),
+                taskData
+            );
+        }
+
+        async function deleteFromFirebase(id) {
+            await window._firestoreDeleteDoc(
+                window._firestoreDoc(window._db, "tasks", String(id))
+            );
+        }
+
+        function switchTab(tab) {
+            ['lista', 'analise'].forEach(t => {
+                document.getElementById(`tab-content-${t}`).classList.add('hidden');
+                document.getElementById(`btn-tab-${t}`).className = 'pb-2 tab-inactive transition-all';
+            });
+            document.getElementById(`tab-content-${tab}`).classList.remove('hidden');
+            document.getElementById(`btn-tab-${tab}`).className = 'pb-2 tab-active transition-all';
+            if (tab === 'analise') setTimeout(renderCharts, 100);
+        }
+
+        function calculateDelay(deadline, status) {
+            if (status === 'concluido') return 0;
+            const end = new Date(deadline);
+            const diffDays = Math.ceil((TODAY - end) / (1000 * 60 * 60 * 24));
+            return diffDays > 0 ? diffDays : 0;
+        }
+
+        function formatDate(dateStr) {
+            if (!dateStr) return "-";
+            const [y, m, d] = dateStr.split('-');
+            return `${d}/${m}/${y}`;
+        }
+
+        function renderTasks() {
+            const tbody = document.getElementById('taskTableBody');
+            const projectFilter = document.getElementById('filterProject').value;
+            const statusFilter = document.getElementById('filterStatus').value;
+            const search = document.getElementById('searchTerm').value.toLowerCase();
+
+            tbody.innerHTML = '';
+            const filtered = window.tasks.filter(t => {
+                const mP = projectFilter === 'all' || t.project === projectFilter;
+                const mS = statusFilter === 'all' || t.status === statusFilter;
+                const mSearch = (t.title || '').toLowerCase().includes(search)
+                    || (t.owner || '').toLowerCase().includes(search)
+                    || (t.sector || '').toLowerCase().includes(search);
+                return mP && mS && mSearch;
+            });
+
+            filtered.forEach(t => {
+                const delay = calculateDelay(t.deadline, t.status);
+                const row = document.createElement('tr');
+                row.className = 'hover:bg-slate-50 transition-all group';
+                row.innerHTML = `
+                    <td class="py-5 px-6 align-top">
+                        <div class="text-[10px] font-black text-indigo-600 mb-1">${t.project}</div>
+                        <div class="text-[10px] font-bold text-slate-400 bg-slate-100 px-2 py-0.5 rounded-sm inline-block">${t.sector}</div>
+                    </td>
+                    <td class="py-5 px-4 align-top">
+                        <div class="font-bold text-slate-800 text-base mb-2">${t.title}</div>
+                        <div class="bg-slate-50 p-3 rounded-lg text-[11px] text-slate-500 leading-relaxed whitespace-pre-line" style="border-left: 2px solid #e2e8f0;">
+                            <strong class="text-slate-400 uppercase text-[9px] block mb-1">Histórico de Anotações:</strong>
+                            ${t.notes || 'Nenhum registro.'}
+                        </div>
+                    </td>
+                    <td class="py-5 px-4 align-top font-semibold text-slate-600">${t.owner}</td>
+                    <td class="py-5 px-4 align-top">
+                        <div class="mb-3">
+                            <span class="text-[9px] font-bold text-indigo-400 uppercase block">Próximo Passo:</span>
+                            <span class="text-xs font-medium text-slate-700">${t.nextStep || '-'}</span>
+                        </div>
+                        <div>
+                            <span class="text-[9px] font-bold text-rose-400 uppercase block">Problemas:</span>
+                            <span class="text-xs text-slate-500">${t.problems || '-'}</span>
+                        </div>
+                    </td>
+                    <td class="py-5 px-4 align-top">
+                        <div class="text-[10px] text-slate-400">Início: ${formatDate(t.start)}</div>
+                        <div class="text-[10px] text-slate-400">Fim: ${formatDate(t.deadline)}</div>
+                        ${delay > 0
+                            ? `<div class="mt-2 text-rose-600 font-black text-[10px]">⚠️ ${delay} DIAS ATRASO</div>`
+                            : `<div class="mt-2 text-emerald-600 font-bold text-[10px]">EM DIA</div>`}
+                    </td>
+                    <td class="py-5 px-4 align-top">
+                        <span class="status-badge status-${t.status}">${t.status}</span>
+                    </td>
+                    <td class="py-5 px-6 align-top text-right">
+                        <button onclick="editTask(${t.id})" class="opacity-0 group-hover:opacity-100 bg-slate-800 text-white px-3 py-1.5 rounded-lg text-[10px] font-bold transition-all">EDITAR</button>
+                    </td>
+                `;
+                tbody.appendChild(row);
+            });
+
+            document.getElementById('showingCount').innerText = `Exibindo ${filtered.length} de ${window.tasks.length} atividades`;
+            updateGeneralStats(filtered);
+        }
+
+        function updateGeneralStats(data) {
+            const total = data.length;
+            const c = data.filter(t => t.status === 'concluido').length;
+            const a = data.filter(t => t.status === 'andamento').length;
+            let totalDelay = 0;
+            data.forEach(t => totalDelay += calculateDelay(t.deadline, t.status));
+            document.getElementById('stat-total').innerText = total;
+            document.getElementById('stat-concluido').innerText = c;
+            document.getElementById('stat-andamento').innerText = a;
+            document.getElementById('stat-atraso-media').innerText = total > 0 ? (totalDelay / total).toFixed(1) : 0;
+        }
+
+        function renderCharts() {
+            const ctx = document.getElementById('progressChart').getContext('2d');
+            const ctxDelay = document.getElementById('delayChart').getContext('2d');
+            const statusCounts = {
+                concluido: window.tasks.filter(t => t.status === 'concluido').length,
+                andamento: window.tasks.filter(t => t.status === 'andamento').length,
+                atraso: window.tasks.filter(t => t.status === 'atraso').length,
+                outros: window.tasks.filter(t => !['concluido', 'andamento', 'atraso'].includes(t.status)).length
+            };
+            if (mainChart) mainChart.destroy();
+            mainChart = new Chart(ctx, {
+                type: 'doughnut',
+                data: {
+                    labels: ['Concluído', 'Andamento', 'Atraso', 'Outros'],
+                    datasets: [{ data: Object.values(statusCounts), backgroundColor: ['#3b82f6', '#fbbf24', '#ef4444', '#cbd5e1'], borderWidth: 0 }]
+                },
+                options: { cutout: '80%', plugins: { legend: { position: 'bottom' } } }
+            });
+            const projectDelays = {};
+            window.tasks.forEach(t => {
+                const d = calculateDelay(t.deadline, t.status);
+                projectDelays[t.project] = (projectDelays[t.project] || 0) + d;
+            });
+            if (delayChart) delayChart.destroy();
+            delayChart = new Chart(ctxDelay, {
+                type: 'bar',
+                data: {
+                    labels: Object.keys(projectDelays),
+                    datasets: [{ label: 'Total de Dias de Atraso', data: Object.values(projectDelays), backgroundColor: '#ef4444' }]
+                },
+                options: { indexAxis: 'y', plugins: { legend: { display: false } }, scales: { x: { beginAtZero: true } } }
+            });
+        }
+
+        function updateDropdowns() {
+            const projects = [...new Set(window.tasks.map(t => t.project))].sort();
+            const filter = document.getElementById('filterProject');
+            const datalist = document.getElementById('projectsList');
+            const current = filter.value;
+            filter.innerHTML = '<option value="all">Todos os Projetos</option>';
+            datalist.innerHTML = '';
+            projects.forEach(p => {
+                const opt = document.createElement('option');
+                opt.value = p; opt.innerText = p;
+                filter.appendChild(opt);
+                const dlOpt = document.createElement('option');
+                dlOpt.value = p;
+                datalist.appendChild(dlOpt);
+            });
+            filter.value = current || 'all';
+        }
+
+        function editTask(id) {
+            const t = window.tasks.find(x => x.id === id);
+            document.getElementById('editIdx').value = id;
+            document.getElementById('editProject').value = t.project;
+            document.getElementById('editSector').value = t.sector || '';
+            document.getElementById('editTitle').value = t.title;
+            document.getElementById('editOwner').value = t.owner;
+            document.getElementById('editStatus').value = t.status;
+            document.getElementById('editStart').value = t.start || '';
+            document.getElementById('editDeadline').value = t.deadline;
+            document.getElementById('editNextStep').value = t.nextStep || '';
+            document.getElementById('editProblems').value = t.problems || '';
+            document.getElementById('editNotes').value = t.notes || '';
+            document.getElementById('modalTitle').innerText = "Editar Atividade";
+            document.getElementById('btnDelete').classList.remove('hidden');
+            document.getElementById('taskModal').classList.replace('hidden', 'flex');
+        }
+
+        function addTask() {
+            document.getElementById('editIdx').value = 'new';
+            document.getElementById('editProject').value = '';
+            document.getElementById('editSector').value = '';
+            document.getElementById('editTitle').value = '';
+            document.getElementById('editOwner').value = '';
+            document.getElementById('editStatus').value = 'pendente';
+            document.getElementById('editStart').value = '';
+            document.getElementById('editDeadline').value = '';
+            document.getElementById('editNextStep').value = '';
+            document.getElementById('editProblems').value = '';
+            document.getElementById('editNotes').value = '';
+            document.getElementById('modalTitle').innerText = "Nova Atividade";
+            document.getElementById('btnDelete').classList.add('hidden');
+            document.getElementById('taskModal').classList.replace('hidden', 'flex');
+        }
+
+        async function deleteTask() {
+            const id = document.getElementById('editIdx').value;
+            if (confirm("Tem certeza que deseja excluir esta atividade?")) {
+                await deleteFromFirebase(id);
+                closeModal();
+            }
+        }
+
+        function closeModal() {
+            document.getElementById('taskModal').classList.replace('flex', 'hidden');
+        }
+
+        async function saveTask() {
+            const id = document.getElementById('editIdx').value;
+            const data = {
+                id: id === 'new' ? Date.now() : parseInt(id),
+                project: document.getElementById('editProject').value.toUpperCase(),
+                sector: document.getElementById('editSector').value.toUpperCase(),
+                title: document.getElementById('editTitle').value,
+                owner: document.getElementById('editOwner').value,
+                status: document.getElementById('editStatus').value,
+                start: document.getElementById('editStart').value,
+                deadline: document.getElementById('editDeadline').value,
+                nextStep: document.getElementById('editNextStep').value,
+                problems: document.getElementById('editProblems').value,
+                notes: document.getElementById('editNotes').value
+            };
+
+            const btn = document.querySelector('#taskModal button[onclick="saveTask()"]');
+            btn.innerText = 'Salvando...';
+            btn.disabled = true;
+
+            await saveToFirebase(data);
+
+            btn.innerText = 'Salvar Alterações';
+            btn.disabled = false;
+            closeModal();
+        }
+    </script>
+</body>
+</html>
