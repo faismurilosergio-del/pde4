@@ -3,11 +3,29 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Gestão PDE</title>
+    <title>Gestão Multiprojetos - PDE</title>
     <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;900&display=swap');
+        body { font-family: 'Inter', sans-serif; background-color: #f1f5f9; }
+        .tab-active { border-bottom: 4px solid #4f46e5; color: #4f46e5; font-weight: 700; }
+        .tab-inactive { color: #94a3b8; font-weight: 500; }
+        .status-badge { px-2; py-1; border-radius: 6px; font-size: 10px; font-weight: 900; text-transform: uppercase; display: inline-block; padding: 4px 8px; }
+        .status-pendente { background-color: #e2e8f0; color: #475569; }
+        .status-andamento { background-color: #dcfce7; color: #166534; }
+        .status-concluido { background-color: #dbeafe; color: #1e40af; }
+        .status-atraso { background-color: #fee2e2; color: #991b1b; }
+        .status-parado { background-color: #fef3c7; color: #92400e; }
+        .card { background: white; border-radius: 12px; shadow: 0 1px 3px rgba(0,0,0,0.1); border: 1px solid #e2e8f0; }
+        #loadingOverlay { position: fixed; inset: 0; background: #0f172a; z-index: 100; display: flex; align-items: center; justify-content: center; flex-direction: column; color: white; }
+        .spinner { width: 40px; height: 40px; border: 4px solid #334155; border-top: 4px solid #6366f1; border-radius: 50%; animation: spin 1s linear infinite; margin-bottom: 15px; }
+        @keyframes spin { to { transform: rotate(360deg); } }
+    </style>
+
     <script type="module">
         import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js";
-        import { getFirestore, collection, onSnapshot, doc, setDoc } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js";
+        import { getFirestore, collection, onSnapshot, doc, setDoc, deleteDoc } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js";
 
         const firebaseConfig = {
             apiKey: "AIzaSyBshYvEFAzYwQPI8R2JTx02B-30Lpriilc",
@@ -22,71 +40,401 @@
         const db = getFirestore(app);
         const tasksCol = collection(db, "tasks");
 
-        // Função interna para desenhar a tabela
-        function drawTable(data) {
-            const tbody = document.getElementById('taskTableBody');
-            if (!tbody) return;
-            tbody.innerHTML = '';
-            
-            data.forEach(t => {
-                const row = tbody.insertRow();
-                row.className = "border-b hover:bg-slate-50";
-                row.innerHTML = `
-                    <td class="p-4"><b class="text-indigo-600 text-xs">${t.project || 'PDE'}</b></td>
-                    <td class="p-4"><div class="font-bold">${t.title || 'Sem Título'}</div></td>
-                    <td class="p-4 text-slate-500">${t.owner || '-'}</td>
-                    <td class="p-4"><span class="bg-blue-100 text-blue-700 px-2 py-1 rounded text-[10px] font-bold uppercase">${t.status || 'andamento'}</span></td>
-                `;
-            });
-        }
+        // Expor funções para o HTML global
+        window.saveToFirebase = async (data) => {
+            await setDoc(doc(db, "tasks", String(data.id)), data);
+        };
+        window.deleteFromFirebase = async (id) => {
+            await deleteDoc(doc(db, "tasks", String(id)));
+        };
 
-        // Escuta o banco de dados
+        // Listener em Tempo Real
         onSnapshot(tasksCol, (snap) => {
-            console.log("DEBUG: Dados recebidos!");
-            const tasks = [];
-            snap.forEach(d => tasks.push(d.data()));
+            window.tasks = [];
+            snap.forEach(d => window.tasks.push(d.data()));
+            window.tasks.sort((a, b) => b.id - a.id);
             
-            // Esconde o carregamento
-            const loader = document.getElementById('loadingOverlay');
-            if(loader) loader.style.display = 'none';
-
-            drawTable(tasks);
+            document.getElementById('loadingOverlay').style.display = 'none';
+            updateDropdowns();
+            renderTasks();
+            if(document.getElementById('tab-content-analise').classList.contains('hidden') === false) {
+                renderCharts();
+            }
         });
     </script>
-    <style>
-        #loadingOverlay { position: fixed; inset: 0; background: #0f172a; z-index: 100; display: flex; align-items: center; justify-content: center; flex-direction: column; color: white; font-family: sans-serif; }
-        .spinner { width: 40px; height: 40px; border: 4px solid #334155; border-top: 4px solid #6366f1; border-radius: 50%; animation: spin 1s linear infinite; mb: 10px; }
-        @keyframes spin { to { transform: rotate(360deg); } }
-    </style>
 </head>
-<body class="bg-slate-100">
+<body class="text-slate-800">
 
     <div id="loadingOverlay">
         <div class="spinner"></div>
-        <p>Sincronizando com Firebase...</p>
+        <p class="font-bold tracking-widest text-xs uppercase">Sincronizando PDE...</p>
     </div>
 
-    <header class="bg-white p-6 border-b flex justify-between items-center shadow-sm">
-        <h1 class="text-xl font-black italic">GESTÃO <span class="text-indigo-600">PDE</span></h1>
-        <div class="text-[10px] font-bold text-emerald-600 bg-emerald-50 px-2 py-1 rounded">● SISTEMA ATIVO</div>
+    <header class="bg-white border-b border-slate-200 sticky top-0 z-40 shadow-sm">
+        <div class="max-w-[1600px] mx-auto px-6 py-4 flex flex-col md:flex-row justify-between items-center gap-4">
+            <div>
+                <h1 class="text-2xl font-black text-slate-900 tracking-tighter uppercase italic">Gestão PDE <span class="text-indigo-600">Projetos</span></h1>
+                <p class="text-slate-400 text-[10px] font-bold uppercase tracking-widest flex items-center gap-2">
+                    <span class="w-2 h-2 bg-emerald-500 rounded-full animate-pulse"></span> Nuvem Conectada
+                </p>
+            </div>
+            
+            <div class="flex items-center gap-3">
+                <nav class="flex gap-8 mr-8 text-xs font-bold uppercase tracking-widest">
+                    <button onclick="switchTab('lista')" id="btn-tab-lista" class="pb-2 tab-active">LISTA DE ATIVIDADES</button>
+                    <button onclick="switchTab('analise')" id="btn-tab-analise" class="pb-2 tab-inactive">ANÁLISE E DASHBOARD</button>
+                </nav>
+                <button onclick="addTask()" class="bg-indigo-600 hover:bg-indigo-700 text-white px-5 py-2 rounded-lg font-bold text-xs shadow-lg transition-all">
+                    + NOVA ATIVIDADE
+                </button>
+            </div>
+        </div>
     </header>
 
-    <main class="p-6 max-w-5xl mx-auto">
-        <div class="bg-white rounded-xl shadow-sm overflow-hidden border">
-            <table class="w-full text-left border-collapse">
-                <thead class="bg-slate-50 text-[10px] uppercase text-slate-400 font-bold border-b">
-                    <tr>
-                        <th class="p-4">Empreendimento</th>
-                        <th class="p-4">Atividade</th>
-                        <th class="p-4">Quem</th>
-                        <th class="p-4">Status</th>
-                    </tr>
-                </thead>
-                <tbody id="taskTableBody" class="text-sm text-slate-700">
-                    </tbody>
-            </table>
-        </div>
+    <main class="max-w-[1600px] mx-auto p-6">
+        
+        <section id="tab-content-lista" class="space-y-6">
+            <div class="card p-4 flex flex-wrap gap-4 items-center justify-between">
+                <div class="flex flex-wrap gap-4 items-center">
+                    <div class="flex flex-col">
+                        <label class="text-[9px] font-bold text-slate-400 uppercase mb-1">Empreendimento</label>
+                        <select id="filterProject" onchange="renderTasks()" class="text-xs p-2 border rounded-md min-w-[200px] outline-none focus:ring-2 focus:ring-indigo-500"></select>
+                    </div>
+                    <div class="flex flex-col">
+                        <label class="text-[9px] font-bold text-slate-400 uppercase mb-1">Status</label>
+                        <select id="filterStatus" onchange="renderTasks()" class="text-xs p-2 border rounded-md min-w-[150px] outline-none">
+                            <option value="all">Todos</option>
+                            <option value="pendente">Pendente</option>
+                            <option value="andamento">Andamento</option>
+                            <option value="concluido">Concluído</option>
+                            <option value="atraso">Atraso</option>
+                            <option value="parado">Parado</option>
+                        </select>
+                    </div>
+                    <div class="flex flex-col">
+                        <label class="text-[9px] font-bold text-slate-400 uppercase mb-1">Busca Rápida</label>
+                        <input type="text" id="searchTerm" oninput="renderTasks()" placeholder="Atividade ou responsável..." class="text-xs p-2 border rounded-md min-w-[250px] outline-none">
+                    </div>
+                </div>
+                <div class="text-right">
+                    <span id="showingCount" class="text-[10px] font-bold text-slate-400 uppercase">Exibindo 0 atividades</span>
+                </div>
+            </div>
+
+            <div class="card overflow-hidden">
+                <div class="overflow-x-auto">
+                    <table class="w-full text-left border-collapse">
+                        <thead class="bg-slate-50 border-b border-slate-200 text-[10px] uppercase text-slate-500 font-bold tracking-widest">
+                            <tr>
+                                <th class="py-4 px-6">Empreendimento / Setor</th>
+                                <th class="py-4 px-4 w-1/4">Atividade & Histórico</th>
+                                <th class="py-4 px-4">Responsável</th>
+                                <th class="py-4 px-4">Próximo Passo / Problemas</th>
+                                <th class="py-4 px-4">Cronograma</th>
+                                <th class="py-4 px-4">Status</th>
+                                <th class="py-4 px-6 text-right">Ação</th>
+                            </tr>
+                        </thead>
+                        <tbody id="taskTableBody" class="text-sm divide-y divide-slate-100 bg-white"></tbody>
+                    </table>
+                </div>
+            </div>
+        </section>
+
+        <section id="tab-content-analise" class="hidden space-y-6">
+            <div class="grid grid-cols-1 md:grid-cols-4 gap-6">
+                <div class="card p-6 border-l-4 border-indigo-500">
+                    <p class="text-slate-400 text-[10px] font-bold uppercase mb-1">Total Geral</p>
+                    <h3 class="text-3xl font-black" id="stat-total">0</h3>
+                </div>
+                <div class="card p-6 border-l-4 border-emerald-500">
+                    <p class="text-emerald-500 text-[10px] font-bold uppercase mb-1">Concluídas</p>
+                    <h3 class="text-3xl font-black text-emerald-600" id="stat-concluido">0</h3>
+                </div>
+                <div class="card p-6 border-l-4 border-amber-500">
+                    <p class="text-amber-500 text-[10px] font-bold uppercase mb-1">Em Andamento</p>
+                    <h3 class="text-3xl font-black text-amber-600" id="stat-andamento">0</h3>
+                </div>
+                <div class="card p-6 border-l-4 border-rose-500">
+                    <p class="text-rose-500 text-[10px] font-bold uppercase mb-1">Média de Atraso (Dias)</p>
+                    <h3 class="text-3xl font-black text-rose-600" id="stat-atraso-media">0</h3>
+                </div>
+            </div>
+
+            <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                <div class="card p-8"><canvas id="progressChart"></canvas></div>
+                <div class="card p-8"><canvas id="delayChart"></canvas></div>
+            </div>
+        </section>
     </main>
 
+    <div id="taskModal" class="fixed inset-0 bg-slate-900/80 hidden items-center justify-center p-4 z-50 backdrop-blur-sm">
+        <div class="bg-white rounded-2xl max-w-3xl w-full shadow-2xl overflow-hidden">
+            <div class="p-6 border-b border-slate-100 flex justify-between items-center bg-slate-50">
+                <h2 id="modalTitle" class="text-lg font-black uppercase">Atividade</h2>
+                <button onclick="closeModal()" class="text-slate-400 hover:text-slate-600">✕</button>
+            </div>
+            <div class="p-8 grid grid-cols-1 md:grid-cols-2 gap-4 overflow-y-auto max-h-[70vh]">
+                <input type="hidden" id="editIdx">
+                <div class="md:col-span-1">
+                    <label class="block text-[9px] font-bold text-slate-400 uppercase">Empreendimento</label>
+                    <input list="projectsList" id="editProject" class="w-full p-2 border rounded-md text-xs bg-slate-50">
+                    <datalist id="projectsList"></datalist>
+                </div>
+                <div class="md:col-span-1">
+                    <label class="block text-[9px] font-bold text-slate-400 uppercase">Setor</label>
+                    <input type="text" id="editSector" class="w-full p-2 border rounded-md text-xs bg-slate-50">
+                </div>
+                <div class="md:col-span-2">
+                    <label class="block text-[9px] font-bold text-slate-400 uppercase">Título</label>
+                    <input type="text" id="editTitle" class="w-full p-2 border rounded-md text-sm font-bold bg-slate-50">
+                </div>
+                <div>
+                    <label class="block text-[9px] font-bold text-slate-400 uppercase">Responsável</label>
+                    <input type="text" id="editOwner" class="w-full p-2 border rounded-md text-xs bg-slate-50">
+                </div>
+                <div>
+                    <label class="block text-[9px] font-bold text-slate-400 uppercase">Status</label>
+                    <select id="editStatus" class="w-full p-2 border rounded-md text-xs bg-slate-50 font-bold">
+                        <option value="pendente">Pendente</option>
+                        <option value="andamento">Em Andamento</option>
+                        <option value="concluido">Concluído</option>
+                        <option value="atraso">Atraso</option>
+                        <option value="parado">Parado</option>
+                    </select>
+                </div>
+                <div>
+                    <label class="block text-[9px] font-bold text-slate-400 uppercase">Data Início</label>
+                    <input type="date" id="editStart" class="w-full p-2 border rounded-md text-xs bg-slate-50">
+                </div>
+                <div>
+                    <label class="block text-[9px] font-bold text-slate-400 uppercase">Prazo Final</label>
+                    <input type="date" id="editDeadline" class="w-full p-2 border rounded-md text-xs bg-slate-50">
+                </div>
+                <div class="md:col-span-2">
+                    <label class="block text-[9px] font-bold text-slate-400 uppercase">Próximo Passo</label>
+                    <input type="text" id="editNextStep" class="w-full p-2 border rounded-md text-xs bg-slate-50">
+                </div>
+                <div class="md:col-span-2">
+                    <label class="block text-[9px] font-bold text-slate-400 uppercase text-rose-400">Problemas</label>
+                    <input type="text" id="editProblems" class="w-full p-2 border rounded-md text-xs bg-slate-50">
+                </div>
+                <div class="md:col-span-2">
+                    <label class="block text-[9px] font-bold text-slate-400 uppercase">Histórico / Notas</label>
+                    <textarea id="editNotes" rows="3" class="w-full p-2 border rounded-md text-xs bg-slate-50"></textarea>
+                </div>
+            </div>
+            <div class="p-6 bg-slate-50 border-t flex justify-end gap-3">
+                <button onclick="deleteTask()" id="btnDelete" class="mr-auto text-rose-500 font-bold text-[10px] uppercase px-4 hover:bg-rose-50 rounded-lg hidden">Excluir</button>
+                <button onclick="closeModal()" class="px-4 py-2 text-slate-500 font-bold text-xs uppercase">Cancelar</button>
+                <button onclick="saveTask()" id="btnSave" class="bg-indigo-600 text-white px-8 py-2 rounded-lg font-black text-xs uppercase shadow-md">Salvar</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const TODAY = new Date();
+        window.tasks = [];
+        let mainChart, delayChart;
+
+        function switchTab(tab) {
+            ['lista', 'analise'].forEach(t => {
+                document.getElementById(`tab-content-${t}`).classList.add('hidden');
+                document.getElementById(`btn-tab-${t}`).className = 'pb-2 tab-inactive transition-all';
+            });
+            document.getElementById(`tab-content-${tab}`).classList.remove('hidden');
+            document.getElementById(`btn-tab-${tab}`).className = 'pb-2 tab-active transition-all';
+            if(tab === 'analise') setTimeout(renderCharts, 100);
+        }
+
+        function calculateDelay(deadline, status) {
+            if (!deadline || status === 'concluido') return 0;
+            const end = new Date(deadline);
+            const diffDays = Math.ceil((TODAY - end) / (1000 * 60 * 60 * 24));
+            return diffDays > 0 ? diffDays : 0;
+        }
+
+        function formatDate(dateStr) {
+            if(!dateStr) return "-";
+            const [y, m, d] = dateStr.split('-');
+            return `${d}/${m}/${y}`;
+        }
+
+        function renderTasks() {
+            const tbody = document.getElementById('taskTableBody');
+            const projectFilter = document.getElementById('filterProject').value;
+            const statusFilter = document.getElementById('filterStatus').value;
+            const search = document.getElementById('searchTerm').value.toLowerCase();
+            
+            tbody.innerHTML = '';
+            const filtered = window.tasks.filter(t => {
+                const mP = projectFilter === 'all' || t.project === projectFilter;
+                const mS = statusFilter === 'all' || t.status === statusFilter;
+                const mSearch = (t.title||"").toLowerCase().includes(search) || (t.owner||"").toLowerCase().includes(search);
+                return mP && mS && mSearch;
+            });
+
+            filtered.forEach(t => {
+                const delay = calculateDelay(t.deadline, t.status);
+                const row = document.createElement('tr');
+                row.className = 'hover:bg-slate-50 transition-all group';
+                row.innerHTML = `
+                    <td class="py-4 px-6 align-top">
+                        <div class="text-[10px] font-black text-indigo-600 mb-1">${t.project}</div>
+                        <div class="text-[9px] font-bold text-slate-400 bg-slate-100 px-2 py-0.5 rounded-sm inline-block">${t.sector || 'GERAL'}</div>
+                    </td>
+                    <td class="py-4 px-4 align-top">
+                        <div class="font-bold text-slate-800 mb-2">${t.title}</div>
+                        <div class="bg-slate-50 p-2 rounded border-l-2 text-[10px] text-slate-500 whitespace-pre-line">${t.notes || ''}</div>
+                    </td>
+                    <td class="py-4 px-4 align-top font-semibold text-slate-600">${t.owner}</td>
+                    <td class="py-4 px-4 align-top">
+                        <div class="text-[10px] mb-1"><b class="text-indigo-400 uppercase">Prox:</b> ${t.nextStep || '-'}</div>
+                        <div class="text-[10px] text-rose-500"><b class="uppercase">Prob:</b> ${t.problems || '-'}</div>
+                    </td>
+                    <td class="py-4 px-4 align-top text-[10px]">
+                        <div>Início: ${formatDate(t.start)}</div>
+                        <div>Fim: ${formatDate(t.deadline)}</div>
+                        ${delay > 0 ? `<div class="mt-1 text-rose-600 font-black">⚠️ ${delay}D ATRASO</div>` : `<div class="mt-1 text-emerald-600 font-bold">EM DIA</div>`}
+                    </td>
+                    <td class="py-4 px-4 align-top">
+                        <span class="status-badge status-${t.status}">${t.status}</span>
+                    </td>
+                    <td class="py-4 px-6 align-top text-right">
+                        <button onclick="editTask(${t.id})" class="opacity-0 group-hover:opacity-100 bg-slate-800 text-white px-3 py-1 rounded text-[10px] font-bold">EDITAR</button>
+                    </td>
+                `;
+                tbody.appendChild(row);
+            });
+            document.getElementById('showingCount').innerText = `Exibindo ${filtered.length} de ${window.tasks.length}`;
+            updateGeneralStats(filtered);
+        }
+
+        function updateGeneralStats(data) {
+            const total = data.length;
+            const c = data.filter(t => t.status === 'concluido').length;
+            const a = data.filter(t => t.status === 'andamento').length;
+            let totalDelay = 0;
+            data.forEach(t => totalDelay += calculateDelay(t.deadline, t.status));
+            document.getElementById('stat-total').innerText = total;
+            document.getElementById('stat-concluido').innerText = c;
+            document.getElementById('stat-andamento').innerText = a;
+            document.getElementById('stat-atraso-media').innerText = total > 0 ? (totalDelay / total).toFixed(1) : 0;
+        }
+
+        function renderCharts() {
+            const ctx = document.getElementById('progressChart').getContext('2d');
+            const ctxDelay = document.getElementById('delayChart').getContext('2d');
+            
+            const stats = {
+                concluido: window.tasks.filter(t => t.status === 'concluido').length,
+                andamento: window.tasks.filter(t => t.status === 'andamento').length,
+                atraso: window.tasks.filter(t => t.status === 'atraso').length,
+                outros: window.tasks.filter(t => !['concluido','andamento','atraso'].includes(t.status)).length
+            };
+
+            if(mainChart) mainChart.destroy();
+            mainChart = new Chart(ctx, {
+                type: 'doughnut',
+                data: {
+                    labels: ['Concluído', 'Andamento', 'Atraso', 'Outros'],
+                    datasets: [{ data: Object.values(stats), backgroundColor: ['#3b82f6', '#fbbf24', '#ef4444', '#cbd5e1'] }]
+                },
+                options: { plugins: { legend: { position: 'bottom' } } }
+            });
+
+            const projDelays = {};
+            window.tasks.forEach(t => {
+                const d = calculateDelay(t.deadline, t.status);
+                projDelays[t.project] = (projDelays[t.project] || 0) + d;
+            });
+
+            if(delayChart) delayChart.destroy();
+            delayChart = new Chart(ctxDelay, {
+                type: 'bar',
+                data: { labels: Object.keys(projDelays), datasets: [{ label: 'Dias de Atraso', data: Object.values(projDelays), backgroundColor: '#ef4444' }] },
+                options: { indexAxis: 'y' }
+            });
+        }
+
+        function editTask(id) {
+            const t = window.tasks.find(x => x.id === id);
+            document.getElementById('editIdx').value = id;
+            document.getElementById('editProject').value = t.project;
+            document.getElementById('editSector').value = t.sector || '';
+            document.getElementById('editTitle').value = t.title;
+            document.getElementById('editOwner').value = t.owner;
+            document.getElementById('editStatus').value = t.status;
+            document.getElementById('editStart').value = t.start || '';
+            document.getElementById('editDeadline').value = t.deadline || '';
+            document.getElementById('editNextStep').value = t.nextStep || '';
+            document.getElementById('editProblems').value = t.problems || '';
+            document.getElementById('editNotes').value = t.notes || '';
+            document.getElementById('modalTitle').innerText = "Editar Atividade";
+            document.getElementById('btnDelete').classList.remove('hidden');
+            document.getElementById('taskModal').classList.replace('hidden', 'flex');
+        }
+
+        function addTask() {
+            document.getElementById('editIdx').value = Date.now();
+            document.getElementById('editProject').value = '';
+            document.getElementById('editSector').value = '';
+            document.getElementById('editTitle').value = '';
+            document.getElementById('editOwner').value = '';
+            document.getElementById('editStatus').value = 'andamento';
+            document.getElementById('editStart').value = '';
+            document.getElementById('editDeadline').value = '';
+            document.getElementById('editNextStep').value = '';
+            document.getElementById('editProblems').value = '';
+            document.getElementById('editNotes').value = '';
+            document.getElementById('modalTitle').innerText = "Nova Atividade";
+            document.getElementById('btnDelete').classList.add('hidden');
+            document.getElementById('taskModal').classList.replace('hidden', 'flex');
+        }
+
+        function closeModal() { document.getElementById('taskModal').classList.replace('flex', 'hidden'); }
+
+        async function deleteTask() {
+            if(confirm("Excluir atividade permanentemente?")) {
+                await window.deleteFromFirebase(document.getElementById('editIdx').value);
+                closeModal();
+            }
+        }
+
+        async function saveTask() {
+            const btn = document.getElementById('btnSave');
+            btn.innerText = "Salvando...";
+            const data = {
+                id: parseInt(document.getElementById('editIdx').value),
+                project: document.getElementById('editProject').value.toUpperCase(),
+                sector: document.getElementById('editSector').value.toUpperCase(),
+                title: document.getElementById('editTitle').value,
+                owner: document.getElementById('editOwner').value,
+                status: document.getElementById('editStatus').value,
+                start: document.getElementById('editStart').value,
+                deadline: document.getElementById('editDeadline').value,
+                nextStep: document.getElementById('editNextStep').value,
+                problems: document.getElementById('editProblems').value,
+                notes: document.getElementById('editNotes').value
+            };
+            await window.saveToFirebase(data);
+            btn.innerText = "Salvar";
+            closeModal();
+        }
+
+        function updateDropdowns() {
+            const projects = [...new Set(window.tasks.map(t => t.project))].sort();
+            const filter = document.getElementById('filterProject');
+            const datalist = document.getElementById('projectsList');
+            const current = filter.value;
+            filter.innerHTML = '<option value="all">Todos os Projetos</option>';
+            datalist.innerHTML = '';
+            projects.forEach(p => {
+                filter.innerHTML += `<option value="${p}">${p}</option>`;
+                datalist.innerHTML += `<option value="${p}">`;
+            });
+            filter.value = current || 'all';
+        }
+    </script>
 </body>
 </html>
