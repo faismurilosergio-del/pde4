@@ -6,6 +6,13 @@
     <title>PDE - Processo de Desenvolvimento de Empreendimento</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.8.2/jspdf.plugin.autotable.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@emailjs/browser@4/dist/email.min.js"></script>
+    <script>
+        // Inicializa EmailJS com a Public Key
+        (function(){ emailjs.init({ publicKey: "HF6APN6CEBMHgL_eo" }); })();
+    </script>
     <style>
         @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;900&display=swap');
         body { font-family: 'Inter', sans-serif; background-color: #f1f5f9; }
@@ -26,6 +33,27 @@
         .spinner { width: 40px; height: 40px; border: 4px solid #334155; border-top: 4px solid #6366f1; border-radius: 50%; animation: spin 1s linear infinite; margin-bottom: 15px; }
         @keyframes spin { to { transform: rotate(360deg); } }
         .brand-title { background: linear-gradient(90deg, #1e1b4b 0%, #4f46e5 100%); -webkit-background-clip: text; -webkit-text-fill-color: transparent; }
+
+        /* Resizable columns */
+        #taskTable th { position: relative; overflow: hidden; }
+        .col-resizer { position: absolute; right: 0; top: 0; width: 6px; height: 100%; cursor: col-resize; background: transparent; z-index: 10; user-select: none; }
+        .col-resizer:hover, .col-resizer.active { background: #6366f1; opacity: 0.5; }
+
+        /* Zoom history button */
+        .btn-zoom-hist { display: inline-flex; align-items: center; justify-content: center; width: 20px; height: 20px; background: #e0e7ff; color: #4f46e5; border-radius: 4px; font-size: 11px; cursor: pointer; border: none; flex-shrink: 0; transition: background 0.15s; }
+        .btn-zoom-hist:hover { background: #6366f1; color: white; }
+
+        /* Owner tags multi-select */
+        .owner-tag { display: inline-flex; align-items: center; gap: 4px; background: #e0e7ff; color: #3730a3; border-radius: 20px; padding: 2px 8px 2px 10px; font-size: 10px; font-weight: 700; }
+        .owner-tag button { background: none; border: none; color: #6366f1; cursor: pointer; font-size: 12px; line-height: 1; padding: 0; }
+        .owner-tag button:hover { color: #ef4444; }
+        #ownerTagsContainer { display: flex; flex-wrap: wrap; gap: 4px; min-height: 28px; padding: 4px; border: 1px solid #e2e8f0; border-radius: 6px; background: #f8fafc; cursor: text; }
+        #ownerTagsContainer:focus-within { border-color: #6366f1; box-shadow: 0 0 0 2px #e0e7ff; }
+        #ownerInput { border: none; outline: none; background: transparent; font-size: 11px; min-width: 120px; flex: 1; }
+        #ownerDropdown { position: absolute; z-index: 999; background: white; border: 1px solid #e2e8f0; border-radius: 8px; box-shadow: 0 8px 24px rgba(0,0,0,0.12); max-height: 180px; overflow-y: auto; width: 100%; }
+        .owner-option { padding: 8px 12px; font-size: 11px; cursor: pointer; display: flex; align-items: center; gap-x: 8px; }
+        .owner-option:hover { background: #eef2ff; }
+        .owner-option.selected { background: #e0e7ff; color: #3730a3; font-weight: 700; }
     </style>
 
     <script type="module">
@@ -44,9 +72,14 @@
         const app = initializeApp(firebaseConfig);
         const db = getFirestore(app);
         const tasksCol = collection(db, "tasks");
+        const usersCol = collection(db, "users");
+        const emailLogsCol = collection(db, "emailLogs");
 
         window.saveToFirebase = async (data) => { await setDoc(doc(db, "tasks", String(data.id)), data); };
         window.deleteFromFirebase = async (id) => { await deleteDoc(doc(db, "tasks", String(id))); };
+        window.saveUserToFirebase = async (data) => { await setDoc(doc(db, "users", String(data.id)), data); };
+        window.deleteUserFromFirebase = async (id) => { await deleteDoc(doc(db, "users", String(id))); };
+        window.saveEmailLog = async (data) => { await setDoc(doc(db, "emailLogs", String(data.id)), data); };
 
         onSnapshot(tasksCol, (snap) => {
             window.tasks = [];
@@ -56,6 +89,23 @@
             updateDropdowns();
             renderTasks();
             updateCharts();
+            scheduleAutoEmailCheck();
+        });
+
+        onSnapshot(usersCol, (snap) => {
+            window.users = [];
+            snap.forEach(d => window.users.push(d.data()));
+            window.users.sort((a, b) => (a.name||'').localeCompare(b.name||''));
+            renderUsersTable();
+            updateOwnerSelect();
+            renderEmailSchedule();
+        });
+
+        onSnapshot(emailLogsCol, (snap) => {
+            window.emailLogs = [];
+            snap.forEach(d => window.emailLogs.push(d.data()));
+            window.emailLogs.sort((a, b) => b.sentAt - a.sentAt);
+            renderEmailSchedule();
         });
     </script>
 </head>
@@ -79,6 +129,7 @@
                 <nav class="flex gap-8 mr-8 text-xs font-bold uppercase tracking-widest">
                     <button onclick="switchTab('lista')" id="btn-tab-lista" class="pb-2 tab-active">LISTA DE ATIVIDADES</button>
                     <button onclick="switchTab('analise')" id="btn-tab-analise" class="pb-2 tab-inactive">ANÁLISE E DASHBOARD</button>
+                    <button onclick="switchTab('usuarios')" id="btn-tab-usuarios" class="pb-2 tab-inactive">USUÁRIOS</button>
                 </nav>
                 <button onclick="addTask()" class="bg-indigo-600 hover:bg-indigo-700 text-white px-5 py-2 rounded-lg font-bold text-xs shadow-lg transition-all">
                     + NOVA ATIVIDADE
@@ -124,22 +175,28 @@
                         </div>
                     </div>
                 </div>
-                <span id="showingCount" class="text-[10px] font-bold text-slate-400 uppercase">Exibindo 0 atividades</span>
+                <div class="flex items-center gap-3">
+                    <span id="showingCount" class="text-[10px] font-bold text-slate-400 uppercase">Exibindo 0 atividades</span>
+                    <button onclick="downloadPDF()" class="flex items-center gap-2 bg-rose-600 hover:bg-rose-700 text-white px-4 py-2 rounded-lg font-bold text-xs shadow transition-all">
+                        ⬇ BAIXAR PDF
+                    </button>
+                </div>
             </div>
 
             <div class="card overflow-hidden">
                 <div class="overflow-x-auto">
-                    <table class="w-full text-left border-collapse">
+                    <table id="taskTable" class="w-full text-left border-collapse" style="table-layout:fixed;">
                         <thead class="bg-slate-50 border-b border-slate-200 text-[10px] uppercase text-slate-500 font-bold tracking-widest">
                             <tr>
-                                <th class="py-4 px-6">Empreendimento</th>
-                                <th class="py-4 px-4 w-1/4">Atividade & Histórico</th>
-                                <th class="py-4 px-4">Responsável</th>
-                                <th class="py-4 px-4 w-1/5 text-rose-500">Problemas</th>
-                                <th class="py-4 px-4">Prazo Atual</th>
-                                <th class="py-4 px-4 text-amber-600">Expectativas Ant.</th>
-                                <th class="py-4 px-4">Status</th>
-                                <th class="py-4 px-6 text-right">Ação</th>
+                                <th class="py-4 px-6" style="width:130px;">Empreendimento<div class="col-resizer"></div></th>
+                                <th class="py-4 px-4" style="width:240px;">Atividade & Histórico<div class="col-resizer"></div></th>
+                                <th class="py-4 px-4" style="width:120px;">Responsável<div class="col-resizer"></div></th>
+                                <th class="py-4 px-4 text-rose-500" style="width:160px;">Problemas<div class="col-resizer"></div></th>
+                                <th class="py-4 px-4 text-indigo-500" style="width:160px;">Próximos Passos<div class="col-resizer"></div></th>
+                                <th class="py-4 px-4" style="width:110px;">Prazo Atual<div class="col-resizer"></div></th>
+                                <th class="py-4 px-4 text-amber-600" style="width:130px;">Expectativas Ant.<div class="col-resizer"></div></th>
+                                <th class="py-4 px-4" style="width:90px;">Status<div class="col-resizer"></div></th>
+                                <th class="py-4 px-6 text-right" style="width:80px;">Ação</th>
                             </tr>
                         </thead>
                         <tbody id="taskTableBody" class="text-sm divide-y divide-slate-100 bg-white"></tbody>
@@ -258,6 +315,128 @@
         </section>
     </main>
 
+    <!-- ══════════════ ABA USUÁRIOS ══════════════ -->
+    <div id="tab-content-usuarios" class="hidden max-w-[1600px] mx-auto p-6 space-y-6">
+
+        <!-- Tabela de Usuários -->
+        <div class="card p-6">
+            <div class="flex justify-between items-center mb-6">
+                <div>
+                    <h2 class="text-base font-black uppercase text-indigo-900 tracking-tight">👥 Gerenciar Usuários / Responsáveis</h2>
+                    <p class="text-[10px] text-slate-400 mt-1">Cadastre os responsáveis aqui. Eles poderão ser selecionados nos cards de atividade.</p>
+                </div>
+                <button onclick="openUserModal()" class="bg-indigo-600 hover:bg-indigo-700 text-white px-5 py-2 rounded-lg font-bold text-xs shadow-lg transition-all">+ NOVO USUÁRIO</button>
+            </div>
+            <div class="overflow-x-auto">
+                <table class="w-full text-left border-collapse">
+                    <thead class="bg-slate-50 border-b border-slate-200 text-[10px] uppercase text-slate-500 font-bold tracking-widest">
+                        <tr>
+                            <th class="py-3 px-4">Nome</th>
+                            <th class="py-3 px-4">E-mail</th>
+                            <th class="py-3 px-4">Setor</th>
+                            <th class="py-3 px-4 text-right">Ação</th>
+                        </tr>
+                    </thead>
+                    <tbody id="usersTableBody" class="text-sm divide-y divide-slate-100 bg-white"></tbody>
+                </table>
+            </div>
+        </div>
+
+        <!-- Painel de Emails Automáticos -->
+        <div class="card p-6">
+            <div class="flex flex-wrap justify-between items-center mb-5 gap-3">
+                <div>
+                    <h2 class="text-base font-black uppercase text-indigo-900 tracking-tight">📧 Emails Automáticos de Lembrete</h2>
+                    <p class="text-[10px] text-slate-400 mt-1">
+                        Disparados automaticamente ao abrir o sistema. 
+                        <span class="text-indigo-500 font-bold">Regras: atividades normais → 1 dia antes. Atrasadas → 3 dias e 1 dia antes.</span>
+                    </p>
+                </div>
+                <div class="flex gap-2 items-center">
+                    <span id="emailScheduleStatus" class="text-[10px] font-bold text-slate-400 uppercase"></span>
+                    <button onclick="runAutoEmailCheck(true)" class="bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 rounded-lg font-bold text-xs shadow transition-all">
+                        ▶ DISPARAR PENDENTES AGORA
+                    </button>
+                </div>
+            </div>
+
+            <!-- Sub-tabs -->
+            <div class="flex gap-6 border-b border-slate-100 mb-4 text-[11px] font-bold uppercase tracking-widest">
+                <button onclick="switchEmailTab('pendentes')" id="btn-email-pendentes" class="pb-2 border-b-2 border-indigo-500 text-indigo-600">Pendentes</button>
+                <button onclick="switchEmailTab('enviados')" id="btn-email-enviados" class="pb-2 border-b-2 border-transparent text-slate-400 hover:text-slate-600">Enviados</button>
+            </div>
+
+            <!-- Pendentes -->
+            <div id="email-tab-pendentes">
+                <div id="emailPendentesEmpty" class="hidden py-8 text-center text-slate-400 text-xs">✅ Nenhum email pendente para hoje.</div>
+                <div class="overflow-x-auto">
+                    <table class="w-full text-left text-xs" id="emailPendentesTable">
+                        <thead class="bg-slate-50 text-[9px] uppercase font-bold text-slate-400 border-b border-slate-200">
+                            <tr>
+                                <th class="py-2 px-3">Atividade</th>
+                                <th class="py-2 px-3">Projeto</th>
+                                <th class="py-2 px-3">Responsável</th>
+                                <th class="py-2 px-3">Prazo</th>
+                                <th class="py-2 px-3">Motivo</th>
+                                <th class="py-2 px-3 text-right">Ação</th>
+                            </tr>
+                        </thead>
+                        <tbody id="emailPendentesBody" class="divide-y divide-slate-100 bg-white"></tbody>
+                    </table>
+                </div>
+            </div>
+
+            <!-- Enviados -->
+            <div id="email-tab-enviados" class="hidden">
+                <div class="overflow-x-auto">
+                    <table class="w-full text-left text-xs">
+                        <thead class="bg-slate-50 text-[9px] uppercase font-bold text-slate-400 border-b border-slate-200">
+                            <tr>
+                                <th class="py-2 px-3">Data/Hora</th>
+                                <th class="py-2 px-3">Atividade</th>
+                                <th class="py-2 px-3">Destinatário</th>
+                                <th class="py-2 px-3">Motivo</th>
+                                <th class="py-2 px-3">Tipo</th>
+                            </tr>
+                        </thead>
+                        <tbody id="emailEnviadosBody" class="divide-y divide-slate-100 bg-white"></tbody>
+                    </table>
+                </div>
+                <div id="emailEnviadosEmpty" class="hidden py-8 text-center text-slate-400 text-xs">Nenhum email enviado ainda.</div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Modal Usuário -->
+    <div id="userModal" class="fixed inset-0 bg-slate-900/80 hidden items-center justify-center p-4 z-50 backdrop-blur-sm">
+        <div class="bg-white rounded-2xl max-w-lg w-full shadow-2xl overflow-hidden">
+            <div class="p-6 border-b border-slate-100 flex justify-between items-center bg-slate-50">
+                <h2 id="userModalTitle" class="text-lg font-black uppercase text-indigo-900">Usuário</h2>
+                <button onclick="closeUserModal()" class="text-slate-400 hover:text-slate-600">✕</button>
+            </div>
+            <div class="p-6 space-y-4">
+                <input type="hidden" id="userEditIdx">
+                <div>
+                    <label class="block text-[9px] font-bold text-slate-400 uppercase mb-1">Nome Completo *</label>
+                    <input type="text" id="userEditName" class="w-full p-2 border rounded-md text-sm bg-slate-50 font-bold" placeholder="Ex: João Silva">
+                </div>
+                <div>
+                    <label class="block text-[9px] font-bold text-slate-400 uppercase mb-1">E-mail *</label>
+                    <input type="email" id="userEditEmail" class="w-full p-2 border rounded-md text-sm bg-slate-50" placeholder="joao@empresa.com.br">
+                </div>
+                <div>
+                    <label class="block text-[9px] font-bold text-slate-400 uppercase mb-1">Setor / Cargo</label>
+                    <input type="text" id="userEditSector" class="w-full p-2 border rounded-md text-sm bg-slate-50" placeholder="Ex: Engenharia">
+                </div>
+            </div>
+            <div class="p-6 bg-slate-50 border-t flex justify-end gap-3">
+                <button onclick="deleteUser()" id="btnDeleteUser" class="mr-auto text-rose-500 font-bold text-[10px] uppercase px-4 hidden">Excluir</button>
+                <button onclick="closeUserModal()" class="px-4 py-2 text-slate-500 font-bold text-xs uppercase">Cancelar</button>
+                <button onclick="saveUser()" class="bg-indigo-600 text-white px-8 py-2 rounded-lg font-black text-xs uppercase">Salvar</button>
+            </div>
+        </div>
+    </div>
+
     <div id="taskModal" class="fixed inset-0 bg-slate-900/80 hidden items-center justify-center p-4 z-50 backdrop-blur-sm">
         <div class="bg-white rounded-2xl max-w-4xl w-full shadow-2xl overflow-hidden">
             <div class="p-6 border-b border-slate-100 flex justify-between items-center bg-slate-50">
@@ -281,9 +460,17 @@
                     <input type="text" id="editTitle" class="w-full p-2 border rounded-md text-sm font-bold bg-slate-50">
                 </div>
                 
-                <div>
-                    <label class="block text-[9px] font-bold text-slate-400 uppercase">Responsável</label>
-                    <input type="text" id="editOwner" class="w-full p-2 border rounded-md text-xs bg-slate-50">
+                <div class="md:col-span-2">
+                    <label class="block text-[9px] font-bold text-slate-400 uppercase mb-1">Responsável(eis)</label>
+                    <div class="relative">
+                        <div id="ownerTagsContainer" onclick="document.getElementById('ownerInput').focus()">
+                            <!-- tags injetadas aqui -->
+                            <input type="text" id="ownerInput" placeholder="Digite ou selecione..." autocomplete="off"
+                                oninput="filterOwnerDropdown()" onfocus="showOwnerDropdown()" onkeydown="ownerInputKeydown(event)">
+                        </div>
+                        <div id="ownerDropdown" class="hidden"></div>
+                    </div>
+                    <input type="hidden" id="editOwner">
                 </div>
                 <div>
                     <label class="block text-[9px] font-bold text-slate-400 uppercase">Status</label>
@@ -327,9 +514,13 @@
                     <div id="historyContainer" class="space-y-2 max-h-40 overflow-y-auto pr-2"></div>
                 </div>
 
-                <div class="md:col-span-2">
+                <div>
                     <label class="block text-[9px] font-bold text-rose-400 uppercase">Problemas / Impedimentos</label>
                     <textarea id="editProblems" rows="2" class="w-full p-2 border rounded-md text-xs bg-rose-50/30"></textarea>
+                </div>
+                <div>
+                    <label class="block text-[9px] font-bold text-indigo-500 uppercase">Próximos Passos</label>
+                    <textarea id="editNextSteps" rows="2" class="w-full p-2 border rounded-md text-xs bg-indigo-50/30"></textarea>
                 </div>
             </div>
 
@@ -356,8 +547,10 @@
         function switchTab(tab) {
             document.getElementById('tab-content-lista').classList.toggle('hidden', tab !== 'lista');
             document.getElementById('tab-content-analise').classList.toggle('hidden', tab !== 'analise');
+            document.getElementById('tab-content-usuarios').classList.toggle('hidden', tab !== 'usuarios');
             document.getElementById('btn-tab-lista').className = tab === 'lista' ? 'pb-2 tab-active' : 'pb-2 tab-inactive';
             document.getElementById('btn-tab-analise').className = tab === 'analise' ? 'pb-2 tab-active' : 'pb-2 tab-inactive';
+            document.getElementById('btn-tab-usuarios').className = tab === 'usuarios' ? 'pb-2 tab-active' : 'pb-2 tab-inactive';
             if(tab === 'analise') updateCharts();
         }
 
@@ -395,7 +588,7 @@
             return JSON.stringify(data);
         }
 
-        function renderHistoryInTable(jsonStr) {
+        function renderHistoryInTable(jsonStr, taskId) {
             try {
                 let data = JSON.parse(jsonStr || '[]');
                 const startF = document.getElementById('filterSprintStart').value;
@@ -403,13 +596,53 @@
                 if(startF || endF) data = data.filter(h => !h.date || ( (!startF || h.date >= startF) && (!endF || h.date <= endF) ));
                 if (data.length === 0) return '';
                 data.sort((a,b) => new Date(b.date) - new Date(a.date));
-                let html = `<div class="mt-2 space-y-1 border-l-2 border-indigo-200 pl-3">`;
+                const escapedJson = encodeURIComponent(jsonStr || '[]');
+                let html = `<div class="mt-2 space-y-1 border-l-2 border-indigo-200 pl-3">
+                    <div class="flex items-center gap-1 mb-1">
+                        <span class="text-[9px] font-black text-indigo-400 uppercase tracking-widest">Histórico</span>
+                        <button class="btn-zoom-hist" title="Abrir histórico completo" onclick="openHistoryWindow(decodeURIComponent('${escapedJson}'), event)">⤢</button>
+                    </div>`;
                 data.forEach(h => {
                     const d = h.date ? h.date.split('-').reverse().join('/') : '--/--';
                     html += `<div class="text-[10px] leading-tight mb-1"><span class="font-black text-indigo-500 mr-1">${d}:</span> <span class="text-slate-600">${h.text}</span></div>`;
                 });
                 return html + `</div>`;
             } catch(e) { return ''; }
+        }
+
+        function openHistoryWindow(jsonStr, event) {
+            event.stopPropagation();
+            try {
+                const data = JSON.parse(jsonStr || '[]');
+                data.sort((a,b) => new Date(b.date) - new Date(a.date));
+                let rows = '';
+                data.forEach(h => {
+                    const d = h.date ? h.date.split('-').reverse().join('/') : '--/--';
+                    rows += `<tr style="border-bottom:1px solid #e2e8f0;">
+                        <td style="padding:10px 16px;font-weight:900;color:#4f46e5;white-space:nowrap;font-size:13px;">${d}</td>
+                        <td style="padding:10px 16px;color:#334155;font-size:13px;line-height:1.5;">${h.text}</td>
+                    </tr>`;
+                });
+                const html = `<!DOCTYPE html><html lang="pt-br"><head><meta charset="UTF-8">
+                    <title>Histórico Completo</title>
+                    <style>
+                        body{font-family:'Segoe UI',sans-serif;background:#f1f5f9;margin:0;padding:24px;}
+                        h2{color:#1e1b4b;font-size:18px;margin-bottom:16px;font-weight:900;letter-spacing:-0.5px;border-bottom:3px solid #4f46e5;padding-bottom:10px;}
+                        table{width:100%;border-collapse:collapse;background:white;border-radius:12px;overflow:hidden;box-shadow:0 2px 8px rgba(0,0,0,0.07);}
+                        thead{background:#4f46e5;color:white;}
+                        th{padding:12px 16px;text-align:left;font-size:11px;text-transform:uppercase;letter-spacing:1px;}
+                        tr:hover td{background:#eef2ff;}
+                        @media print{body{background:white;}}
+                    </style>
+                </head><body>
+                    <h2>📋 Histórico de Avanços</h2>
+                    <table><thead><tr><th>Data</th><th>Registro</th></tr></thead><tbody>${rows}</tbody></table>
+                    <p style="margin-top:16px;font-size:10px;color:#94a3b8;text-align:right;">Gerado em ${new Date().toLocaleString('pt-BR')}</p>
+                </body></html>`;
+                const win = window.open('', '_blank', 'width=760,height=600,resizable=yes,scrollbars=yes');
+                win.document.write(html);
+                win.document.close();
+            } catch(e) { alert('Erro ao abrir histórico.'); }
         }
 
         function renderTasks() {
@@ -428,20 +661,30 @@
                 const row = document.createElement('tr');
                 row.className = 'hover:bg-slate-50 transition-all group';
                 row.innerHTML = `
-                    <td class="py-4 px-6 align-top uppercase">
+                    <td class="py-4 px-6 align-top uppercase" style="overflow:hidden;">
                         <div class="text-[10px] font-black text-indigo-600 mb-1">${t.project}</div>
                         <div class="text-[9px] font-bold text-slate-400 bg-slate-100 px-2 py-0.5 rounded-sm inline-block">${t.sector || '-'}</div>
                     </td>
-                    <td class="py-4 px-4 align-top">
+                    <td class="py-4 px-4 align-top" style="overflow:hidden;">
                         <div class="font-bold text-slate-800 leading-tight">${t.title}</div>
-                        ${renderHistoryInTable(t.notes)}
+                        ${renderHistoryInTable(t.notes, t.id)}
                     </td>
-                    <td class="py-4 px-4 align-top font-semibold text-slate-600">${t.owner}</td>
-                    <td class="py-4 px-4 align-top text-rose-600 text-[10px] italic">${t.problems || '-'}</td>
-                    <td class="py-4 px-4 align-top font-bold text-slate-900">${t.deadline ? t.deadline.split('-').reverse().join('/') : '-'}</td>
-                    <td class="py-4 px-4 align-top text-amber-600 text-[10px] font-mono">${t.oldExpectations || '-'}</td>
-                    <td class="py-4 px-4 align-top"><span class="status-badge status-${t.status}">${t.status}</span></td>
-                    <td class="py-4 px-6 align-top text-right"><button onclick="editTask(${t.id})" class="opacity-0 group-hover:opacity-100 bg-slate-800 text-white px-3 py-1 rounded text-[10px] font-bold">EDITAR</button></td>
+                    <td class="py-4 px-4 align-top font-semibold text-slate-600" style="overflow:hidden;">${t.owner}</td>
+                    <td class="py-4 px-4 align-top text-rose-600 text-[10px] italic" style="overflow:hidden;">${t.problems || '-'}</td>
+                    <td class="py-4 px-4 align-top text-indigo-700 text-[10px] font-medium" style="overflow:hidden;">${t.nextSteps || '-'}</td>
+                    <td class="py-4 px-4 align-top font-bold text-slate-900" style="overflow:hidden;">${t.deadline ? t.deadline.split('-').reverse().join('/') : '-'}</td>
+                    <td class="py-4 px-4 align-top text-amber-600 text-[10px] font-mono" style="overflow:hidden;">${t.oldExpectations || '-'}</td>
+                    <td class="py-4 px-4 align-top" style="overflow:hidden;"><span class="status-badge status-${t.status}">${t.status}</span></td>
+                    <td class="py-4 px-6 align-top text-right">
+                        <div class="flex gap-2 justify-end opacity-0 group-hover:opacity-100 transition-all">
+                            <button onclick="sendTaskEmail(${t.id}, this)" 
+                                title="Enviar e-mail para responsável(eis)"
+                                class="bg-emerald-600 hover:bg-emerald-700 text-white px-3 py-1 rounded text-[10px] font-bold flex items-center gap-1">
+                                ✉ EMAIL
+                            </button>
+                            <button onclick="editTask(${t.id})" class="bg-slate-800 hover:bg-slate-700 text-white px-3 py-1 rounded text-[10px] font-bold">EDITAR</button>
+                        </div>
+                    </td>
                 `;
                 tbody.appendChild(row);
             });
@@ -454,12 +697,12 @@
             document.getElementById('editProject').value = t.project;
             document.getElementById('editSector').value = t.sector || '';
             document.getElementById('editTitle').value = t.title;
-            document.getElementById('editOwner').value = t.owner;
             document.getElementById('editStatus').value = t.status;
             document.getElementById('editStart').value = t.start || '';
             document.getElementById('editDeadline').value = t.deadline || '';
             document.getElementById('editOldExpectations').value = t.oldExpectations || '';
             document.getElementById('editProblems').value = t.problems || '';
+            document.getElementById('editNextSteps').value = t.nextSteps || '';
             document.getElementById('reprogramarSection').classList.add('hidden');
             document.getElementById('newDeadline').value = '';
             document.getElementById('reproReason').value = '';
@@ -467,6 +710,9 @@
             document.getElementById('editDeadline').readOnly = true;
             document.getElementById('historyContainer').innerHTML = '';
             try { JSON.parse(t.notes || '[]').forEach(h => addHistoryLine(h.date, h.text)); } catch(e) {}
+            // Carrega responsáveis (suporte a string legada e array novo)
+            const owners = Array.isArray(t.owners) ? t.owners : (t.owner ? [t.owner] : []);
+            setSelectedOwners(owners);
             document.getElementById('modalTitle').innerText = "Editar Atividade";
             document.getElementById('btnDelete').classList.remove('hidden');
             document.getElementById('taskModal').classList.replace('hidden', 'flex');
@@ -477,16 +723,17 @@
             document.getElementById('editProject').value = '';
             document.getElementById('editSector').value = '';
             document.getElementById('editTitle').value = '';
-            document.getElementById('editOwner').value = '';
             document.getElementById('editStatus').value = 'andamento';
             document.getElementById('editStart').value = TODAY_ISO;
             document.getElementById('editDeadline').value = '';
             document.getElementById('editOldExpectations').value = '';
             document.getElementById('editProblems').value = '';
+            document.getElementById('editNextSteps').value = '';
             document.getElementById('editDeadline').readOnly = false;
             document.getElementById('btnReprogramar').classList.add('hidden');
             document.getElementById('reprogramarSection').classList.add('hidden');
             document.getElementById('historyContainer').innerHTML = '';
+            setSelectedOwners([]);
             document.getElementById('modalTitle').innerText = "Nova Atividade";
             document.getElementById('btnDelete').classList.add('hidden');
             document.getElementById('taskModal').classList.replace('hidden', 'flex');
@@ -514,22 +761,632 @@
             }
 
             btn.innerText = "Salvando...";
+            const selectedOwners = getSelectedOwners();
             await window.saveToFirebase({
                 id: parseInt(document.getElementById('editIdx').value),
                 project: document.getElementById('editProject').value.toUpperCase(),
                 sector: document.getElementById('editSector').value.toUpperCase(),
                 title: document.getElementById('editTitle').value,
-                owner: document.getElementById('editOwner').value,
+                owner: selectedOwners.join(', '), // compatibilidade legada
+                owners: selectedOwners,
                 status: document.getElementById('editStatus').value,
                 start: document.getElementById('editStart').value,
                 deadline: finalDeadline,
                 oldExpectations: finalOldExpectations,
                 problems: document.getElementById('editProblems').value,
+                nextSteps: document.getElementById('editNextSteps').value,
                 notes: getHistoryData()
             });
             btn.innerText = "Salvar Atividade";
             closeModal();
         }
+
+        // ══════════════════════════════════════════════════════
+        // MULTI-SELECT DE RESPONSÁVEIS
+        // ══════════════════════════════════════════════════════
+        window.users = window.users || [];
+        let selectedOwners = [];
+
+        function getSelectedOwners() { return [...selectedOwners]; }
+
+        function setSelectedOwners(names) {
+            selectedOwners = [...names];
+            renderOwnerTags();
+        }
+
+        function renderOwnerTags() {
+            const container = document.getElementById('ownerTagsContainer');
+            if (!container) return;
+            // Remove tags antigas mas mantém o input
+            container.querySelectorAll('.owner-tag').forEach(t => t.remove());
+            const input = document.getElementById('ownerInput');
+            selectedOwners.forEach(name => {
+                const tag = document.createElement('span');
+                tag.className = 'owner-tag';
+                tag.innerHTML = `${name} <button type="button" onclick="removeOwner('${name.replace(/'/g,"\\'")}')">✕</button>`;
+                container.insertBefore(tag, input);
+            });
+            document.getElementById('editOwner').value = selectedOwners.join(', ');
+        }
+
+        function removeOwner(name) {
+            selectedOwners = selectedOwners.filter(o => o !== name);
+            renderOwnerTags();
+        }
+
+        function addOwner(name) {
+            if (!name || selectedOwners.includes(name)) return;
+            selectedOwners.push(name);
+            renderOwnerTags();
+            document.getElementById('ownerInput').value = '';
+            hideOwnerDropdown();
+        }
+
+        function showOwnerDropdown() {
+            filterOwnerDropdown();
+            document.getElementById('ownerDropdown').classList.remove('hidden');
+        }
+
+        function hideOwnerDropdown() {
+            setTimeout(() => document.getElementById('ownerDropdown').classList.add('hidden'), 180);
+        }
+
+        function filterOwnerDropdown() {
+            const q = (document.getElementById('ownerInput').value || '').toLowerCase();
+            const dd = document.getElementById('ownerDropdown');
+            const list = (window.users || []).filter(u => u.name && u.name.toLowerCase().includes(q));
+            if (list.length === 0) { dd.classList.add('hidden'); return; }
+            dd.innerHTML = list.map(u => {
+                const sel = selectedOwners.includes(u.name) ? 'selected' : '';
+                return `<div class="owner-option ${sel}" onmousedown="addOwner('${u.name.replace(/'/g,"\\'")}')">${u.name} <span style="color:#94a3b8;font-weight:400;margin-left:6px;">${u.email||''}</span></div>`;
+            }).join('');
+            dd.classList.remove('hidden');
+        }
+
+        function ownerInputKeydown(e) {
+            if (e.key === 'Enter' || e.key === ',') {
+                e.preventDefault();
+                const val = document.getElementById('ownerInput').value.trim();
+                if (val) addOwner(val);
+            } else if (e.key === 'Escape') {
+                hideOwnerDropdown();
+            }
+        }
+
+        function updateOwnerSelect() { /* chamado quando users muda — nada a fazer aqui, dropdown é dinâmico */ }
+
+        // ══════════════════════════════════════════════════════
+        // CRUD DE USUÁRIOS
+        // ══════════════════════════════════════════════════════
+        function renderUsersTable() {
+            const tbody = document.getElementById('usersTableBody');
+            if (!tbody) return;
+            tbody.innerHTML = '';
+            (window.users || []).forEach(u => {
+                tbody.innerHTML += `
+                    <tr class="hover:bg-slate-50 transition-all group">
+                        <td class="py-3 px-4 font-bold text-slate-800">${u.name}</td>
+                        <td class="py-3 px-4 text-slate-500 text-xs">${u.email || '-'}</td>
+                        <td class="py-3 px-4 text-slate-400 text-xs">${u.sector || '-'}</td>
+                        <td class="py-3 px-4 text-right">
+                            <button onclick="openUserModal(${u.id})" class="opacity-0 group-hover:opacity-100 bg-slate-800 text-white px-3 py-1 rounded text-[10px] font-bold">EDITAR</button>
+                        </td>
+                    </tr>`;
+            });
+            if ((window.users || []).length === 0) {
+                tbody.innerHTML = `<tr><td colspan="4" class="p-8 text-center text-slate-400 text-xs">Nenhum usuário cadastrado ainda.</td></tr>`;
+            }
+        }
+
+        function openUserModal(id) {
+            if (id) {
+                const u = window.users.find(x => x.id === id);
+                document.getElementById('userEditIdx').value = u.id;
+                document.getElementById('userEditName').value = u.name;
+                document.getElementById('userEditEmail').value = u.email || '';
+                document.getElementById('userEditSector').value = u.sector || '';
+                document.getElementById('userModalTitle').innerText = 'Editar Usuário';
+                document.getElementById('btnDeleteUser').classList.remove('hidden');
+            } else {
+                document.getElementById('userEditIdx').value = Date.now();
+                document.getElementById('userEditName').value = '';
+                document.getElementById('userEditEmail').value = '';
+                document.getElementById('userEditSector').value = '';
+                document.getElementById('userModalTitle').innerText = 'Novo Usuário';
+                document.getElementById('btnDeleteUser').classList.add('hidden');
+            }
+            document.getElementById('userModal').classList.replace('hidden', 'flex');
+        }
+
+        function closeUserModal() { document.getElementById('userModal').classList.replace('flex', 'hidden'); }
+
+        async function saveUser() {
+            const name = document.getElementById('userEditName').value.trim();
+            const email = document.getElementById('userEditEmail').value.trim();
+            if (!name) return alert('O nome é obrigatório.');
+            await window.saveUserToFirebase({
+                id: parseInt(document.getElementById('userEditIdx').value),
+                name,
+                email,
+                sector: document.getElementById('userEditSector').value.trim()
+            });
+            closeUserModal();
+        }
+
+        async function deleteUser() {
+            if (confirm('Excluir este usuário permanentemente?')) {
+                await window.deleteUserFromFirebase(document.getElementById('userEditIdx').value);
+                closeUserModal();
+            }
+        }
+
+        // ══════════════════════════════════════════════════════
+        // DOWNLOAD PDF
+        // ══════════════════════════════════════════════════════
+        function getFilteredTasks() {
+            const projectF = document.getElementById('filterProject').value;
+            const statusF = document.getElementById('filterStatus').value;
+            const search = (document.getElementById('searchTerm').value || '').toLowerCase();
+            const startF = document.getElementById('filterSprintStart').value;
+            const endF = document.getElementById('filterSprintEnd').value;
+            return window.tasks.filter(t => {
+                const mP = projectF === 'all' || t.project === projectF;
+                const mS = statusF === 'all' || t.status === statusF;
+                const mSearch = (t.title||'').toLowerCase().includes(search) || (t.owner||'').toLowerCase().includes(search);
+                return mP && mS && mSearch;
+            });
+        }
+
+        function getHistoryText(jsonStr) {
+            try {
+                let data = JSON.parse(jsonStr || '[]');
+                const startF = document.getElementById('filterSprintStart').value;
+                const endF = document.getElementById('filterSprintEnd').value;
+                if (startF || endF) data = data.filter(h => !h.date || ((!startF || h.date >= startF) && (!endF || h.date <= endF)));
+                data.sort((a,b) => new Date(b.date) - new Date(a.date));
+                return data.map(h => `${h.date ? h.date.split('-').reverse().join('/') : '--/--'}: ${h.text}`).join('\n');
+            } catch(e) { return ''; }
+        }
+
+        function downloadPDF() {
+            const { jsPDF } = window.jspdf;
+            const doc = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a4' });
+
+            // Cabeçalho
+            doc.setFillColor(31, 27, 75);
+            doc.rect(0, 0, 297, 18, 'F');
+            doc.setTextColor(255, 255, 255);
+            doc.setFontSize(11);
+            doc.setFont('helvetica', 'bold');
+            doc.text('PDE — Processo de Desenvolvimento de Empreendimento', 10, 12);
+            doc.setFontSize(7);
+            doc.setFont('helvetica', 'normal');
+            doc.text(`Relatório gerado em ${new Date().toLocaleString('pt-BR')}`, 10, 16);
+
+            // Filtros ativos
+            const projF = document.getElementById('filterProject').value;
+            const statF = document.getElementById('filterStatus').value;
+            const sprintS = document.getElementById('filterSprintStart').value;
+            const sprintE = document.getElementById('filterSprintEnd').value;
+            const search = document.getElementById('searchTerm').value;
+            const filtrosAtivos = [
+                projF !== 'all' ? `Projeto: ${projF}` : '',
+                statF !== 'all' ? `Status: ${statF}` : '',
+                sprintS ? `Sprint início: ${sprintS.split('-').reverse().join('/')}` : '',
+                sprintE ? `Sprint fim: ${sprintE.split('-').reverse().join('/')}` : '',
+                search ? `Busca: "${search}"` : ''
+            ].filter(Boolean);
+
+            doc.setTextColor(31, 27, 75);
+            doc.setFontSize(7);
+            if (filtrosAtivos.length > 0) {
+                doc.text(`Filtros: ${filtrosAtivos.join('  |  ')}`, 10, 23);
+            }
+
+            const tasks = getFilteredTasks();
+
+            const body = tasks.map(t => [
+                `${t.project}\n${t.sector || ''}`,
+                t.title || '',
+                (Array.isArray(t.owners) ? t.owners.join(', ') : t.owner) || '',
+                t.problems || '',
+                t.nextSteps || '',
+                t.deadline ? t.deadline.split('-').reverse().join('/') : '',
+                t.oldExpectations || '',
+                t.status ? t.status.toUpperCase() : '',
+                getHistoryText(t.notes)
+            ]);
+
+            doc.autoTable({
+                startY: filtrosAtivos.length > 0 ? 27 : 22,
+                head: [[
+                    'Empreendimento', 'Atividade', 'Responsável(eis)',
+                    'Problemas', 'Próximos Passos', 'Prazo', 'Expect. Ant.', 'Status', 'Histórico'
+                ]],
+                body,
+                styles: { fontSize: 6.5, cellPadding: 2.5, overflow: 'linebreak', valign: 'top' },
+                headStyles: { fillColor: [79, 70, 229], textColor: 255, fontStyle: 'bold', fontSize: 7 },
+                columnStyles: {
+                    0: { cellWidth: 28 },
+                    1: { cellWidth: 42 },
+                    2: { cellWidth: 28 },
+                    3: { cellWidth: 28 },
+                    4: { cellWidth: 28 },
+                    5: { cellWidth: 18 },
+                    6: { cellWidth: 20 },
+                    7: { cellWidth: 16 },
+                    8: { cellWidth: 'auto' }
+                },
+                alternateRowStyles: { fillColor: [241, 245, 249] },
+                didParseCell: function(data) {
+                    if (data.section === 'body' && data.column.index === 7) {
+                        const s = (data.cell.raw || '').toLowerCase();
+                        if (s === 'atraso') data.cell.styles.textColor = [153, 27, 27];
+                        else if (s === 'concluido') data.cell.styles.textColor = [30, 64, 175];
+                        else if (s === 'andamento') data.cell.styles.textColor = [22, 101, 52];
+                    }
+                }
+            });
+
+            // Rodapé com número de página
+            const pageCount = doc.internal.getNumberOfPages();
+            for (let i = 1; i <= pageCount; i++) {
+                doc.setPage(i);
+                doc.setFontSize(7);
+                doc.setTextColor(148, 163, 184);
+                doc.text(`Página ${i} de ${pageCount}  —  Total: ${tasks.length} atividades`, 10, doc.internal.pageSize.height - 5);
+            }
+
+            const dateStr = new Date().toISOString().slice(0,10);
+            doc.save(`PDE-Relatorio-${dateStr}.pdf`);
+        }
+
+        // ══════════════════════════════════════════════════════
+        // ENVIO DE EMAIL VIA EMAILJS
+        // ══════════════════════════════════════════════════════
+        async function sendTaskEmail(taskId, btnEl) {
+            const t = window.tasks.find(x => x.id === taskId);
+            if (!t) return;
+
+            const owners = Array.isArray(t.owners) ? t.owners : (t.owner ? [t.owner] : []);
+            if (owners.length === 0) {
+                alert('Esta atividade não tem responsáveis cadastrados.');
+                return;
+            }
+
+            // Busca emails dos responsáveis na lista de usuários
+            const recipients = owners.map(name => {
+                const u = (window.users || []).find(u => u.name === name);
+                return { name, email: u ? u.email : null };
+            });
+
+            const semEmail = recipients.filter(r => !r.email);
+            if (semEmail.length > 0) {
+                const nomes = semEmail.map(r => r.name).join(', ');
+                const continuar = confirm(`Atenção: ${nomes} não possui e-mail cadastrado e não receberá o e-mail.\n\nDeseja continuar mesmo assim?`);
+                if (!continuar) return;
+            }
+
+            const comEmail = recipients.filter(r => r.email);
+            if (comEmail.length === 0) {
+                alert('Nenhum dos responsáveis tem e-mail cadastrado. Cadastre os e-mails na aba Usuários.');
+                return;
+            }
+
+            // Confirma envio
+            const prazo = t.deadline ? t.deadline.split('-').reverse().join('/') : 'Não definido';
+            const destinatarios = comEmail.map(r => `${r.name} (${r.email})`).join(', ');
+            const confirmar = confirm(
+                `Enviar e-mail de lembrete?\n\n` +
+                `📌 Atividade: ${t.title}\n` +
+                `📅 Prazo: ${prazo}\n` +
+                `🔖 Status: ${t.status}\n\n` +
+                `Destinatário(s):\n${destinatarios}`
+            );
+            if (!confirmar) return;
+
+            // Envia um email para cada responsável com email
+            const originalText = btnEl.innerText;
+            btnEl.innerText = '⏳ Enviando...';
+            btnEl.disabled = true;
+
+            let enviados = 0;
+            let erros = 0;
+
+            for (const r of comEmail) {
+                try {
+                    await emailjs.send('service_al37c0d', 'template_9kuc2xo', {
+                        to_email:    r.email,
+                        to_name:     r.name,
+                        owner_name:  r.name,
+                        title:       t.title,
+                        project:     t.project  || '',
+                        sector:      t.sector   || '',
+                        owners:      owners.join(', '),
+                        deadline:    prazo,
+                        status:      (t.status  || '').toUpperCase(),
+                    });
+                    enviados++;
+                } catch (err) {
+                    console.error('Erro ao enviar para', r.email, err);
+                    erros++;
+                }
+            }
+
+            btnEl.disabled = false;
+
+            if (erros === 0) {
+                btnEl.innerText = '✔ ENVIADO';
+                btnEl.style.background = '#6366f1';
+                setTimeout(() => {
+                    btnEl.innerText = originalText;
+                    btnEl.style.background = '';
+                }, 3000);
+                alert(`✅ E-mail enviado com sucesso para ${enviados} responsável(eis)!`);
+            } else {
+                btnEl.innerText = originalText;
+                alert(`⚠️ ${enviados} enviado(s) com sucesso, ${erros} falhou/falharam.\nVerifique o console (F12) para detalhes.`);
+            }
+        }
+        // ══════════════════════════════════════════════════════
+
+        // ══════════════════════════════════════════════════════
+        // SISTEMA DE EMAILS AUTOMÁTICOS
+        // ══════════════════════════════════════════════════════
+        window.emailLogs = window.emailLogs || [];
+
+        // Gera chave única de controle para evitar reenvio
+        // Formato: taskId_tipoGatilho_YYYY-MM-DD
+        function emailKey(taskId, trigger, date) {
+            return `${taskId}_${trigger}_${date}`;
+        }
+
+        // Calcula quais emails devem ser disparados hoje
+        function calcPendingEmails() {
+            const hoje = TODAY_ISO;
+            const pending = [];
+
+            (window.tasks || []).forEach(t => {
+                if (!t.deadline || t.status === 'concluido') return;
+                const owners = Array.isArray(t.owners) ? t.owners : (t.owner ? [t.owner] : []);
+                if (owners.length === 0) return;
+
+                const deadlineDate = new Date(t.deadline + 'T00:00:00');
+                const hojeDate    = new Date(hoje + 'T00:00:00');
+                const diffDays    = Math.round((deadlineDate - hojeDate) / (1000 * 60 * 60 * 24));
+
+                const isAtrasada = t.status === 'atraso';
+
+                // Regra 1: Faltam 1 dia → todos os status não concluídos
+                if (diffDays === 1) {
+                    const key = emailKey(t.id, '1d', hoje);
+                    const jaEnviado = (window.emailLogs || []).some(l => l.key === key);
+                    if (!jaEnviado) pending.push({ task: t, owners, trigger: '1d', motivo: 'Falta 1 dia para o prazo', key });
+                }
+
+                // Regra 2: Faltam 3 dias → somente atrasadas
+                if (isAtrasada && diffDays === 3) {
+                    const key = emailKey(t.id, '3d', hoje);
+                    const jaEnviado = (window.emailLogs || []).some(l => l.key === key);
+                    if (!jaEnviado) pending.push({ task: t, owners, trigger: '3d', motivo: 'Faltam 3 dias — atividade em ATRASO', key });
+                }
+            });
+
+            return pending;
+        }
+
+        // Renderiza as tabelas de Pendentes e Enviados na aba Usuários
+        function renderEmailSchedule() {
+            const pending = calcPendingEmails();
+
+            // ── Pendentes ──
+            const tbody = document.getElementById('emailPendentesBody');
+            const empty = document.getElementById('emailPendentesEmpty');
+            if (!tbody) return;
+
+            tbody.innerHTML = '';
+            if (pending.length === 0) {
+                document.getElementById('emailPendentesTable').classList.add('hidden');
+                empty.classList.remove('hidden');
+            } else {
+                document.getElementById('emailPendentesTable').classList.remove('hidden');
+                empty.classList.add('hidden');
+                pending.forEach(p => {
+                    const prazo = p.task.deadline ? p.task.deadline.split('-').reverse().join('/') : '-';
+                    const recipientsHtml = p.owners.map(name => {
+                        const u = (window.users || []).find(u => u.name === name);
+                        const temEmail = u && u.email;
+                        return `<span class="${temEmail ? 'text-slate-700' : 'text-rose-400 line-through'}" title="${temEmail ? u.email : 'Sem email cadastrado'}">${name}</span>`;
+                    }).join(', ');
+
+                    tbody.innerHTML += `
+                        <tr class="hover:bg-indigo-50">
+                            <td class="py-2 px-3 font-bold text-slate-800">${p.task.title}</td>
+                            <td class="py-2 px-3 text-indigo-600 text-[10px] font-bold uppercase">${p.task.project}</td>
+                            <td class="py-2 px-3">${recipientsHtml}</td>
+                            <td class="py-2 px-3 font-mono font-bold">${prazo}</td>
+                            <td class="py-2 px-3">
+                                <span class="px-2 py-0.5 rounded text-[9px] font-black uppercase ${p.trigger === '3d' ? 'bg-rose-100 text-rose-700' : 'bg-amber-100 text-amber-700'}">${p.motivo}</span>
+                            </td>
+                            <td class="py-2 px-3 text-right">
+                                <button onclick="sendSinglePendingEmail('${p.key}', this)"
+                                    class="bg-emerald-600 hover:bg-emerald-700 text-white px-3 py-1 rounded text-[9px] font-bold">
+                                    ✉ ENVIAR
+                                </button>
+                            </td>
+                        </tr>`;
+                });
+            }
+
+            // Contador no botão disparar
+            const statusEl = document.getElementById('emailScheduleStatus');
+            if (statusEl) statusEl.innerText = `${pending.length} pendente(s) hoje`;
+
+            // ── Enviados ──
+            const envBody = document.getElementById('emailEnviadosBody');
+            const envEmpty = document.getElementById('emailEnviadosEmpty');
+            if (!envBody) return;
+            const logs = (window.emailLogs || []).slice(0, 100);
+            envBody.innerHTML = '';
+            if (logs.length === 0) {
+                envEmpty.classList.remove('hidden');
+            } else {
+                envEmpty.classList.add('hidden');
+                logs.forEach(l => {
+                    const dt = l.sentAt ? new Date(l.sentAt).toLocaleString('pt-BR') : '-';
+                    const tipoColor = l.tipo === 'auto' ? 'bg-indigo-100 text-indigo-700' : 'bg-slate-100 text-slate-600';
+                    const tipoLabel = l.tipo === 'auto' ? 'Automático' : 'Manual';
+                    envBody.innerHTML += `
+                        <tr class="hover:bg-slate-50">
+                            <td class="py-2 px-3 text-[10px] font-mono text-slate-500">${dt}</td>
+                            <td class="py-2 px-3 font-bold text-slate-800 text-[11px]">${l.taskTitle || '-'}</td>
+                            <td class="py-2 px-3 text-slate-600 text-[11px]">${l.recipient || '-'}</td>
+                            <td class="py-2 px-3 text-[10px] text-slate-500">${l.motivo || '-'}</td>
+                            <td class="py-2 px-3"><span class="px-2 py-0.5 rounded text-[9px] font-black uppercase ${tipoColor}">${tipoLabel}</span></td>
+                        </tr>`;
+                });
+            }
+        }
+
+        // Alterna sub-tabs Pendentes / Enviados
+        function switchEmailTab(tab) {
+            document.getElementById('email-tab-pendentes').classList.toggle('hidden', tab !== 'pendentes');
+            document.getElementById('email-tab-enviados').classList.toggle('hidden', tab !== 'enviados');
+            document.getElementById('btn-email-pendentes').className = tab === 'pendentes'
+                ? 'pb-2 border-b-2 border-indigo-500 text-indigo-600'
+                : 'pb-2 border-b-2 border-transparent text-slate-400 hover:text-slate-600';
+            document.getElementById('btn-email-enviados').className = tab === 'enviados'
+                ? 'pb-2 border-b-2 border-indigo-500 text-indigo-600'
+                : 'pb-2 border-b-2 border-transparent text-slate-400 hover:text-slate-600';
+        }
+
+        // Envia email para um item pendente específico (botão ENVIAR na linha)
+        async function sendSinglePendingEmail(key, btnEl) {
+            const pending = calcPendingEmails();
+            const item = pending.find(p => p.key === key);
+            if (!item) { alert('Este email já foi enviado ou não é mais aplicável.'); return; }
+            btnEl.innerText = '⏳...';
+            btnEl.disabled = true;
+            await _dispatchEmailItem(item, 'manual');
+            renderEmailSchedule();
+        }
+
+        // Dispara todos os emails pendentes (chamado automaticamente ou pelo botão)
+        async function runAutoEmailCheck(showFeedback = false) {
+            const pending = calcPendingEmails();
+            if (pending.length === 0) {
+                if (showFeedback) alert('✅ Nenhum email pendente para hoje!');
+                return;
+            }
+
+            let enviados = 0, semEmail = 0;
+            for (const item of pending) {
+                const resultado = await _dispatchEmailItem(item, 'auto');
+                enviados += resultado.enviados;
+                semEmail += resultado.semEmail;
+            }
+            renderEmailSchedule();
+            if (showFeedback) {
+                let msg = `✅ Verificação concluída!\n\n📨 ${enviados} email(s) enviado(s).`;
+                if (semEmail > 0) msg += `\n⚠️ ${semEmail} responsável(eis) sem e-mail cadastrado foram ignorados.`;
+                alert(msg);
+            }
+        }
+
+        // Função interna: envia emails de um item pendente e salva log
+        async function _dispatchEmailItem(item, tipo) {
+            const { task: t, owners, motivo, key } = item;
+            let enviados = 0, semEmail = 0;
+
+            for (const name of owners) {
+                const u = (window.users || []).find(u => u.name === name);
+                if (!u || !u.email) { semEmail++; continue; }
+
+                const prazo = t.deadline ? t.deadline.split('-').reverse().join('/') : 'Não definido';
+                try {
+                    await emailjs.send('service_al37c0d', 'template_9kuc2xo', {
+                        to_email:   u.email,
+                        to_name:    name,
+                        owner_name: name,
+                        title:      t.title,
+                        project:    t.project  || '',
+                        sector:     t.sector   || '',
+                        owners:     owners.join(', '),
+                        deadline:   prazo,
+                        status:     (t.status  || '').toUpperCase(),
+                    });
+
+                    // Salva log no Firebase
+                    const logId = Date.now() + Math.random();
+                    await window.saveEmailLog({
+                        id:        logId,
+                        key,
+                        taskId:    t.id,
+                        taskTitle: t.title,
+                        recipient: `${name} (${u.email})`,
+                        motivo,
+                        tipo,
+                        sentAt:    Date.now()
+                    });
+                    enviados++;
+                } catch(err) {
+                    console.error('Erro ao enviar email automático para', u.email, err);
+                }
+            }
+            return { enviados, semEmail };
+        }
+
+        // Roda verificação automática assim que os dados carregam (com debounce)
+        let _autoEmailTimer = null;
+        function scheduleAutoEmailCheck() {
+            clearTimeout(_autoEmailTimer);
+            _autoEmailTimer = setTimeout(() => {
+                runAutoEmailCheck(false);
+            }, 3000); // aguarda 3s após carregar para não disparar durante navegação rápida
+        }
+        // ══════════════════════════════════════════════════════
+
+        function initResizableColumns() {
+            const table = document.getElementById('taskTable');
+            if (!table) return;
+            const ths = table.querySelectorAll('thead th');
+            ths.forEach(th => {
+                const resizer = th.querySelector('.col-resizer');
+                if (!resizer) return;
+                let startX, startW;
+                resizer.addEventListener('mousedown', e => {
+                    startX = e.pageX;
+                    startW = th.offsetWidth;
+                    resizer.classList.add('active');
+                    const onMove = ev => {
+                        const newW = Math.max(60, startW + (ev.pageX - startX));
+                        th.style.width = newW + 'px';
+                    };
+                    const onUp = () => {
+                        resizer.classList.remove('active');
+                        document.removeEventListener('mousemove', onMove);
+                        document.removeEventListener('mouseup', onUp);
+                    };
+                    document.addEventListener('mousemove', onMove);
+                    document.addEventListener('mouseup', onUp);
+                    e.preventDefault();
+                });
+            });
+        }
+        // Init once DOM is ready and re-init is not needed since ths are static
+        document.addEventListener('DOMContentLoaded', initResizableColumns);
+        // Also init after a short delay in case table renders later
+        setTimeout(initResizableColumns, 800);
+        // ──────────────────────────────────────────────────────────────
+
+        // Fechar dropdown de owner ao clicar fora
+        document.addEventListener('click', (e) => {
+            const dd = document.getElementById('ownerDropdown');
+            const container = document.getElementById('ownerTagsContainer');
+            if (dd && container && !container.contains(e.target) && !dd.contains(e.target)) {
+                dd.classList.add('hidden');
+            }
+        });
 
         function updateDropdowns() {
             const projects = [...new Set(window.tasks.map(t => t.project))].sort();
