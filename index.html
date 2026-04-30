@@ -43,6 +43,11 @@
         .btn-zoom-hist { display: inline-flex; align-items: center; justify-content: center; width: 20px; height: 20px; background: #e0e7ff; color: #4f46e5; border-radius: 4px; font-size: 11px; cursor: pointer; border: none; flex-shrink: 0; transition: background 0.15s; }
         .btn-zoom-hist:hover { background: #6366f1; color: white; }
 
+        /* Collapsible history */
+        .hist-collapsed .hist-extra { display: none; }
+        .btn-toggle-hist { display: inline-flex; align-items: center; gap: 3px; margin-top: 4px; font-size: 9px; font-weight: 800; color: #6366f1; background: #eef2ff; border: none; border-radius: 4px; padding: 2px 7px; cursor: pointer; text-transform: uppercase; letter-spacing: 0.05em; }
+        .btn-toggle-hist:hover { background: #e0e7ff; }
+
         /* Owner tags multi-select */
         .owner-tag { display: inline-flex; align-items: center; gap: 4px; background: #e0e7ff; color: #3730a3; border-radius: 20px; padding: 2px 8px 2px 10px; font-size: 10px; font-weight: 700; }
         .owner-tag button { background: none; border: none; color: #6366f1; cursor: pointer; font-size: 12px; line-height: 1; padding: 0; }
@@ -51,7 +56,7 @@
         #ownerTagsContainer:focus-within { border-color: #6366f1; box-shadow: 0 0 0 2px #e0e7ff; }
         #ownerInput { border: none; outline: none; background: transparent; font-size: 11px; min-width: 120px; flex: 1; }
         #ownerDropdown { position: absolute; z-index: 999; background: white; border: 1px solid #e2e8f0; border-radius: 8px; box-shadow: 0 8px 24px rgba(0,0,0,0.12); max-height: 180px; overflow-y: auto; width: 100%; }
-        .owner-option { padding: 8px 12px; font-size: 11px; cursor: pointer; display: flex; align-items: center; gap-x: 8px; }
+        .owner-option { padding: 8px 12px; font-size: 11px; cursor: pointer; display: flex; align-items: center; }
         .owner-option:hover { background: #eef2ff; }
         .owner-option.selected { background: #e0e7ff; color: #3730a3; font-weight: 700; }
     </style>
@@ -74,12 +79,15 @@
         const tasksCol = collection(db, "tasks");
         const usersCol = collection(db, "users");
         const emailLogsCol = collection(db, "emailLogs");
+        const configsCol = collection(db, "configs");
 
         window.saveToFirebase = async (data) => { await setDoc(doc(db, "tasks", String(data.id)), data); };
         window.deleteFromFirebase = async (id) => { await deleteDoc(doc(db, "tasks", String(id))); };
         window.saveUserToFirebase = async (data) => { await setDoc(doc(db, "users", String(data.id)), data); };
         window.deleteUserFromFirebase = async (id) => { await deleteDoc(doc(db, "users", String(id))); };
         window.saveEmailLog = async (data) => { await setDoc(doc(db, "emailLogs", String(data.id)), data); };
+        window.saveConfig = async (data) => { await setDoc(doc(db, "configs", String(data.id)), data); };
+        window.deleteConfig = async (id) => { await deleteDoc(doc(db, "configs", String(id))); };
 
         onSnapshot(tasksCol, (snap) => {
             window.tasks = [];
@@ -107,6 +115,19 @@
             window.emailLogs.sort((a, b) => b.sentAt - a.sentAt);
             renderEmailSchedule();
         });
+
+        onSnapshot(configsCol, (snap) => {
+            window.configs = { empreendimentos: [], setores: [] };
+            snap.forEach(d => {
+                const cfg = d.data();
+                if (cfg.type === 'empreendimento') window.configs.empreendimentos.push(cfg);
+                if (cfg.type === 'setor') window.configs.setores.push(cfg);
+            });
+            window.configs.empreendimentos.sort((a,b) => (a.name||'').localeCompare(b.name||''));
+            window.configs.setores.sort((a,b) => (a.name||'').localeCompare(b.name||''));
+            renderConfigsTable();
+            updateConfigSelects();
+        });
     </script>
 </head>
 <body class="text-slate-800">
@@ -117,7 +138,7 @@
     </div>
 
     <header class="bg-white border-b border-slate-200 sticky top-0 z-40 shadow-sm">
-        <div class="max-w-[1600px] mx-auto px-6 py-4 flex flex-col md:flex-row justify-between items-center gap-4">
+        <div class="max-w-[1920px] mx-auto px-6 py-4 flex flex-col md:flex-row justify-between items-center gap-4">
             <div>
                 <h1 class="text-2xl font-black tracking-tighter uppercase italic brand-title">PDE <span class="text-slate-400 font-light">|</span> Gestão de Empreendimento</h1>
                 <p class="text-slate-400 text-[10px] font-bold uppercase tracking-widest flex items-center gap-2">
@@ -129,7 +150,7 @@
                 <nav class="flex gap-8 mr-8 text-xs font-bold uppercase tracking-widest">
                     <button onclick="switchTab('lista')" id="btn-tab-lista" class="pb-2 tab-active">LISTA DE ATIVIDADES</button>
                     <button onclick="switchTab('analise')" id="btn-tab-analise" class="pb-2 tab-inactive">ANÁLISE E DASHBOARD</button>
-                    <button onclick="switchTab('usuarios')" id="btn-tab-usuarios" class="pb-2 tab-inactive">USUÁRIOS</button>
+                    <button onclick="switchTab('usuarios')" id="btn-tab-usuarios" class="pb-2 tab-inactive">CONFIGURAÇÕES</button>
                 </nav>
                 <button onclick="addTask()" class="bg-indigo-600 hover:bg-indigo-700 text-white px-5 py-2 rounded-lg font-bold text-xs shadow-lg transition-all">
                     + NOVA ATIVIDADE
@@ -138,7 +159,7 @@
         </div>
     </header>
 
-    <main class="max-w-[1600px] mx-auto p-6">
+    <main class="max-w-[1920px] mx-auto p-6">
         
         <section id="tab-content-lista" class="space-y-6">
             <div class="card p-4 flex flex-wrap gap-4 items-center justify-between bg-white">
@@ -188,15 +209,15 @@
                     <table id="taskTable" class="w-full text-left border-collapse" style="table-layout:fixed;">
                         <thead class="bg-slate-50 border-b border-slate-200 text-[10px] uppercase text-slate-500 font-bold tracking-widest">
                             <tr>
-                                <th class="py-4 px-6" style="width:130px;">Empreendimento<div class="col-resizer"></div></th>
-                                <th class="py-4 px-4" style="width:240px;">Atividade & Histórico<div class="col-resizer"></div></th>
-                                <th class="py-4 px-4" style="width:120px;">Responsável<div class="col-resizer"></div></th>
-                                <th class="py-4 px-4 text-rose-500" style="width:160px;">Problemas<div class="col-resizer"></div></th>
-                                <th class="py-4 px-4 text-indigo-500" style="width:160px;">Próximos Passos<div class="col-resizer"></div></th>
-                                <th class="py-4 px-4" style="width:110px;">Prazo Atual<div class="col-resizer"></div></th>
+                                <th class="py-4 px-4" style="width:140px;">Empreendimento<div class="col-resizer"></div></th>
+                                <th class="py-4 px-4" style="width:340px;">Atividade & Histórico<div class="col-resizer"></div></th>
+                                <th class="py-4 px-4" style="width:130px;">Responsável<div class="col-resizer"></div></th>
+                                <th class="py-4 px-4 text-rose-500" style="width:170px;">Problemas<div class="col-resizer"></div></th>
+                                <th class="py-4 px-4 text-indigo-500" style="width:170px;">Próximos Passos<div class="col-resizer"></div></th>
+                                <th class="py-4 px-4" style="width:100px;">Prazo Atual<div class="col-resizer"></div></th>
                                 <th class="py-4 px-4 text-amber-600" style="width:130px;">Expectativas Ant.<div class="col-resizer"></div></th>
                                 <th class="py-4 px-4" style="width:90px;">Status<div class="col-resizer"></div></th>
-                                <th class="py-4 px-6 text-right" style="width:80px;">Ação</th>
+                                <th class="py-4 px-4 text-right" style="width:150px;">Ação</th>
                             </tr>
                         </thead>
                         <tbody id="taskTableBody" class="text-sm divide-y divide-slate-100 bg-white"></tbody>
@@ -315,8 +336,44 @@
         </section>
     </main>
 
-    <!-- ══════════════ ABA USUÁRIOS ══════════════ -->
-    <div id="tab-content-usuarios" class="hidden max-w-[1600px] mx-auto p-6 space-y-6">
+    <!-- ══════════════ ABA CONFIGURAÇÕES ══════════════ -->
+    <div id="tab-content-usuarios" class="hidden max-w-[1920px] mx-auto p-6 space-y-6">
+
+        <!-- Grid: Empreendimentos + Setores -->
+        <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            <!-- Empreendimentos -->
+            <div class="card p-6">
+                <div class="flex justify-between items-center mb-4">
+                    <div>
+                        <h2 class="text-base font-black uppercase text-indigo-900 tracking-tight">🏗️ Empreendimentos</h2>
+                        <p class="text-[10px] text-slate-400 mt-0.5">Cadastre os empreendimentos disponíveis nos cards.</p>
+                    </div>
+                    <button onclick="openConfigModal('empreendimento')" class="bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 rounded-lg font-bold text-xs shadow transition-all">+ NOVO</button>
+                </div>
+                <table class="w-full text-left border-collapse">
+                    <thead class="bg-slate-50 border-b border-slate-200 text-[10px] uppercase text-slate-500 font-bold tracking-widest">
+                        <tr><th class="py-2 px-3">Nome</th><th class="py-2 px-3 text-right">Ação</th></tr>
+                    </thead>
+                    <tbody id="empreendimentosTableBody" class="divide-y divide-slate-100 bg-white text-sm"></tbody>
+                </table>
+            </div>
+            <!-- Setores -->
+            <div class="card p-6">
+                <div class="flex justify-between items-center mb-4">
+                    <div>
+                        <h2 class="text-base font-black uppercase text-indigo-900 tracking-tight">🏢 Setores</h2>
+                        <p class="text-[10px] text-slate-400 mt-0.5">Cadastre os setores disponíveis nos cards.</p>
+                    </div>
+                    <button onclick="openConfigModal('setor')" class="bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 rounded-lg font-bold text-xs shadow transition-all">+ NOVO</button>
+                </div>
+                <table class="w-full text-left border-collapse">
+                    <thead class="bg-slate-50 border-b border-slate-200 text-[10px] uppercase text-slate-500 font-bold tracking-widest">
+                        <tr><th class="py-2 px-3">Nome</th><th class="py-2 px-3 text-right">Ação</th></tr>
+                    </thead>
+                    <tbody id="setoresTableBody" class="divide-y divide-slate-100 bg-white text-sm"></tbody>
+                </table>
+            </div>
+        </div>
 
         <!-- Tabela de Usuários -->
         <div class="card p-6">
@@ -407,6 +464,29 @@
         </div>
     </div>
 
+    <!-- Modal Config (Empreendimento / Setor) -->
+    <div id="configModal" class="fixed inset-0 bg-slate-900/80 hidden items-center justify-center p-4 z-50 backdrop-blur-sm">
+        <div class="bg-white rounded-2xl max-w-sm w-full shadow-2xl overflow-hidden">
+            <div class="p-5 border-b border-slate-100 flex justify-between items-center bg-slate-50">
+                <h2 id="configModalTitle" class="text-base font-black uppercase text-indigo-900">Item</h2>
+                <button onclick="closeConfigModal()" class="text-slate-400 hover:text-slate-600">✕</button>
+            </div>
+            <div class="p-6 space-y-4">
+                <input type="hidden" id="configEditId">
+                <input type="hidden" id="configEditType">
+                <div>
+                    <label class="block text-[9px] font-bold text-slate-400 uppercase mb-1">Nome *</label>
+                    <input type="text" id="configEditName" class="w-full p-2 border rounded-md text-sm bg-slate-50 font-bold uppercase" placeholder="Ex: BE SÃO PAULO">
+                </div>
+            </div>
+            <div class="p-5 bg-slate-50 border-t flex justify-end gap-3">
+                <button onclick="deleteConfig()" id="btnDeleteConfig" class="mr-auto text-rose-500 font-bold text-[10px] uppercase px-4 hidden">Excluir</button>
+                <button onclick="closeConfigModal()" class="px-4 py-2 text-slate-500 font-bold text-xs uppercase">Cancelar</button>
+                <button onclick="saveConfigItem()" class="bg-indigo-600 text-white px-8 py-2 rounded-lg font-black text-xs uppercase">Salvar</button>
+            </div>
+        </div>
+    </div>
+
     <!-- Modal Usuário -->
     <div id="userModal" class="fixed inset-0 bg-slate-900/80 hidden items-center justify-center p-4 z-50 backdrop-blur-sm">
         <div class="bg-white rounded-2xl max-w-lg w-full shadow-2xl overflow-hidden">
@@ -448,12 +528,15 @@
                 
                 <div>
                     <label class="block text-[9px] font-bold text-slate-400 uppercase">Empreendimento</label>
-                    <input list="projectsList" id="editProject" class="w-full p-2 border rounded-md text-xs bg-slate-50 uppercase">
-                    <datalist id="projectsList"></datalist>
+                    <select id="editProject" class="w-full p-2 border rounded-md text-xs bg-slate-50 uppercase font-bold">
+                        <option value="">Selecione...</option>
+                    </select>
                 </div>
                 <div>
                     <label class="block text-[9px] font-bold text-slate-400 uppercase">Setor</label>
-                    <input type="text" id="editSector" class="w-full p-2 border rounded-md text-xs bg-slate-50 uppercase">
+                    <select id="editSector" class="w-full p-2 border rounded-md text-xs bg-slate-50 uppercase">
+                        <option value="">Selecione...</option>
+                    </select>
                 </div>
                 <div class="md:col-span-2">
                     <label class="block text-[9px] font-bold text-slate-400 uppercase">Título da Atividade</label>
@@ -597,17 +680,36 @@
                 if (data.length === 0) return '';
                 data.sort((a,b) => new Date(b.date) - new Date(a.date));
                 const escapedJson = encodeURIComponent(jsonStr || '[]');
-                let html = `<div class="mt-2 space-y-1 border-l-2 border-indigo-200 pl-3">
+                const uid = 'hist_' + taskId;
+                const hasExtra = data.length > 2;
+
+                let html = `<div class="mt-2 border-l-2 border-indigo-200 pl-3 hist-collapsed" id="${uid}">
                     <div class="flex items-center gap-1 mb-1">
                         <span class="text-[9px] font-black text-indigo-400 uppercase tracking-widest">Histórico</span>
                         <button class="btn-zoom-hist" title="Abrir histórico completo" onclick="openHistoryWindow(decodeURIComponent('${escapedJson}'), event)">⤢</button>
                     </div>`;
-                data.forEach(h => {
+
+                data.forEach((h, i) => {
                     const d = h.date ? h.date.split('-').reverse().join('/') : '--/--';
-                    html += `<div class="text-[10px] leading-tight mb-1"><span class="font-black text-indigo-500 mr-1">${d}:</span> <span class="text-slate-600">${h.text}</span></div>`;
+                    const extraClass = i >= 2 ? 'hist-extra' : '';
+                    html += `<div class="text-[10px] leading-tight mb-1 ${extraClass}"><span class="font-black text-indigo-500 mr-1">${d}:</span> <span class="text-slate-600">${h.text}</span></div>`;
                 });
+
+                if (hasExtra) {
+                    html += `<button class="btn-toggle-hist" onclick="toggleHistory('${uid}', this)">
+                        ▼ Ver todos (${data.length})
+                    </button>`;
+                }
+
                 return html + `</div>`;
             } catch(e) { return ''; }
+        }
+
+        function toggleHistory(uid, btn) {
+            const el = document.getElementById(uid);
+            const collapsed = el.classList.toggle('hist-collapsed');
+            const total = el.querySelectorAll('.hist-extra').length + 2;
+            btn.innerHTML = collapsed ? `▼ Ver todos (${total})` : `▲ Minimizar`;
         }
 
         function openHistoryWindow(jsonStr, event) {
@@ -858,6 +960,82 @@
         // ══════════════════════════════════════════════════════
         // CRUD DE USUÁRIOS
         // ══════════════════════════════════════════════════════
+        // ══════════════════════════════════════════════════════
+        // CRUD DE CONFIGURAÇÕES (EMPREENDIMENTOS / SETORES)
+        // ══════════════════════════════════════════════════════
+        window.configs = { empreendimentos: [], setores: [] };
+
+        function renderConfigsTable() {
+            const cfg = window.configs;
+
+            const empBody = document.getElementById('empreendimentosTableBody');
+            if (empBody) {
+                empBody.innerHTML = cfg.empreendimentos.length === 0
+                    ? `<tr><td colspan="2" class="p-4 text-center text-slate-400 text-xs">Nenhum empreendimento cadastrado.</td></tr>`
+                    : cfg.empreendimentos.map(e => `
+                        <tr class="hover:bg-slate-50 group">
+                            <td class="py-2 px-3 font-bold text-indigo-700 uppercase text-xs">${e.name}</td>
+                            <td class="py-2 px-3 text-right">
+                                <button onclick="openConfigModal('empreendimento', '${e.id}')" class="opacity-0 group-hover:opacity-100 bg-slate-700 text-white px-3 py-1 rounded text-[9px] font-bold">EDITAR</button>
+                            </td>
+                        </tr>`).join('');
+            }
+
+            const setBody = document.getElementById('setoresTableBody');
+            if (setBody) {
+                setBody.innerHTML = cfg.setores.length === 0
+                    ? `<tr><td colspan="2" class="p-4 text-center text-slate-400 text-xs">Nenhum setor cadastrado.</td></tr>`
+                    : cfg.setores.map(s => `
+                        <tr class="hover:bg-slate-50 group">
+                            <td class="py-2 px-3 font-bold text-slate-700 uppercase text-xs">${s.name}</td>
+                            <td class="py-2 px-3 text-right">
+                                <button onclick="openConfigModal('setor', '${s.id}')" class="opacity-0 group-hover:opacity-100 bg-slate-700 text-white px-3 py-1 rounded text-[9px] font-bold">EDITAR</button>
+                            </td>
+                        </tr>`).join('');
+            }
+        }
+
+        function openConfigModal(type, id) {
+            const label = type === 'empreendimento' ? 'Empreendimento' : 'Setor';
+            document.getElementById('configModalTitle').innerText = id ? `Editar ${label}` : `Novo ${label}`;
+            document.getElementById('configEditType').value = type;
+            document.getElementById('btnDeleteConfig').classList.toggle('hidden', !id);
+
+            if (id) {
+                const list = type === 'empreendimento' ? window.configs.empreendimentos : window.configs.setores;
+                const item = list.find(x => String(x.id) === String(id));
+                document.getElementById('configEditId').value = item ? item.id : '';
+                document.getElementById('configEditName').value = item ? item.name : '';
+            } else {
+                document.getElementById('configEditId').value = Date.now();
+                document.getElementById('configEditName').value = '';
+            }
+            document.getElementById('configModal').classList.replace('hidden', 'flex');
+        }
+
+        function closeConfigModal() {
+            document.getElementById('configModal').classList.replace('flex', 'hidden');
+        }
+
+        async function saveConfigItem() {
+            const name = document.getElementById('configEditName').value.trim().toUpperCase();
+            if (!name) return alert('O nome é obrigatório.');
+            await window.saveConfig({
+                id: parseInt(document.getElementById('configEditId').value),
+                type: document.getElementById('configEditType').value,
+                name
+            });
+            closeConfigModal();
+        }
+
+        async function deleteConfig() {
+            if (confirm('Excluir este item permanentemente?')) {
+                await window.deleteConfig(document.getElementById('configEditId').value);
+                closeConfigModal();
+            }
+        }
+        // ══════════════════════════════════════════════════════
+
         function renderUsersTable() {
             const tbody = document.getElementById('usersTableBody');
             if (!tbody) return;
@@ -1391,15 +1569,30 @@
         function updateDropdowns() {
             const projects = [...new Set(window.tasks.map(t => t.project))].sort();
             const fProj = document.getElementById('filterProject');
-            const dList = document.getElementById('projectsList');
             fProj.innerHTML = '<option value="all">Todos os Projetos</option>';
-            if(dList) {
-                dList.innerHTML = '';
-                projects.forEach(p => {
-                    fProj.innerHTML += `<option value="${p}">${p}</option>`;
-                    dList.innerHTML += `<option value="${p}">`;
-                });
-            }
+            projects.forEach(p => { fProj.innerHTML += `<option value="${p}">${p}</option>`; });
+        }
+
+        function updateConfigSelects() {
+            const cfg = window.configs || { empreendimentos: [], setores: [] };
+            const projSel = document.getElementById('editProject');
+            const setorSel = document.getElementById('editSector');
+            if (!projSel || !setorSel) return;
+
+            const curProj = projSel.value;
+            const curSetor = setorSel.value;
+
+            projSel.innerHTML = '<option value="">Selecione...</option>';
+            cfg.empreendimentos.forEach(e => {
+                projSel.innerHTML += `<option value="${e.name}">${e.name}</option>`;
+            });
+            if (curProj) projSel.value = curProj;
+
+            setorSel.innerHTML = '<option value="">Selecione...</option>';
+            cfg.setores.forEach(s => {
+                setorSel.innerHTML += `<option value="${s.name}">${s.name}</option>`;
+            });
+            if (curSetor) setorSel.value = curSetor;
         }
 
         function updateCharts() {
