@@ -59,6 +59,18 @@
         .owner-option { padding: 8px 12px; font-size: 11px; cursor: pointer; display: flex; align-items: center; }
         .owner-option:hover { background: #eef2ff; }
         .owner-option.selected { background: #e0e7ff; color: #3730a3; font-weight: 700; }
+
+        /* Drag & drop rows */
+        tr.dragging { opacity: 0.4; background: #eef2ff !important; }
+        tr.drag-over { border-top: 3px solid #6366f1 !important; }
+        .drag-handle { cursor: grab; color: #cbd5e1; font-size: 14px; padding: 0 6px; user-select: none; }
+        .drag-handle:hover { color: #6366f1; }
+        tr:active .drag-handle { cursor: grabbing; }
+
+        /* Multi-select filter dropdown */
+        .filter-dropdown { position: absolute; z-index: 50; background: white; border: 1px solid #e2e8f0; border-radius: 10px; box-shadow: 0 8px 24px rgba(0,0,0,0.12); min-width: 200px; padding: 8px; margin-top: 4px; }
+        .filter-dropdown label { display: flex; align-items: center; gap-x: 8px; padding: 6px 8px; border-radius: 6px; cursor: pointer; font-size: 11px; font-weight: 600; gap: 8px; }
+        .filter-dropdown label:hover { background: #f1f5f9; }
     </style>
 
     <script type="module">
@@ -88,6 +100,7 @@
         window.saveEmailLog = async (data) => { await setDoc(doc(db, "emailLogs", String(data.id)), data); };
         window.saveConfig = async (data) => { await setDoc(doc(db, "configs", String(data.id)), data); };
         window.deleteConfig = async (id) => { await deleteDoc(doc(db, "configs", String(id))); };
+        window.saveOrderToFirebase = async (orderArr) => { await setDoc(doc(db, "configs", "taskOrder"), { id: "taskOrder", type: "taskOrder", order: orderArr }); };
 
         onSnapshot(tasksCol, (snap) => {
             window.tasks = [];
@@ -118,10 +131,12 @@
 
         onSnapshot(configsCol, (snap) => {
             window.configs = { empreendimentos: [], setores: [] };
+            window.taskOrder = window.taskOrder || [];
             snap.forEach(d => {
                 const cfg = d.data();
                 if (cfg.type === 'empreendimento') window.configs.empreendimentos.push(cfg);
                 if (cfg.type === 'setor') window.configs.setores.push(cfg);
+                if (cfg.type === 'taskOrder') window.taskOrder = cfg.order || [];
             });
             window.configs.empreendimentos.sort((a,b) => (a.name||'').localeCompare(b.name||''));
             window.configs.setores.sort((a,b) => (a.name||'').localeCompare(b.name||''));
@@ -162,22 +177,45 @@
     <main class="max-w-[1920px] mx-auto p-6">
         
         <section id="tab-content-lista" class="space-y-6">
-            <div class="card p-4 flex flex-wrap gap-4 items-center justify-between bg-white">
-                <div class="flex flex-wrap gap-4 items-center">
+            <div class="card p-4 flex flex-wrap gap-4 items-end justify-between bg-white">
+                <div class="flex flex-wrap gap-3 items-end">
+
+                    <!-- Filtro Empreendimento multi-select -->
                     <div class="flex flex-col">
                         <label class="text-[9px] font-bold text-slate-400 uppercase mb-1">Empreendimento</label>
-                        <select id="filterProject" onchange="renderTasks()" class="text-xs p-2 border rounded-md min-w-[150px] outline-none"></select>
+                        <div class="relative">
+                            <button id="btnProjFilter" onclick="toggleDropdown('projFilterDropdown')"
+                                class="flex items-center gap-2 text-xs px-3 py-2 border rounded-md bg-white min-w-[170px] font-bold text-slate-700 hover:bg-slate-50 outline-none">
+                                <span id="labelProjFilter">Todos</span>
+                                <span class="ml-auto text-slate-400 text-[10px]">▾</span>
+                            </button>
+                            <div id="projFilterDropdown" class="filter-dropdown hidden" style="top:100%;left:0;">
+                                <label><input type="checkbox" class="proj-cb" value="all" checked onchange="onProjCbChange(this)"> Todos</label>
+                                <div id="projCbList"></div>
+                            </div>
+                        </div>
                     </div>
+
+                    <!-- Filtro Status multi-select -->
                     <div class="flex flex-col">
                         <label class="text-[9px] font-bold text-slate-400 uppercase mb-1">Status</label>
-                        <select id="filterStatus" onchange="renderTasks()" class="text-xs p-2 border rounded-md min-w-[100px] outline-none">
-                            <option value="all">Todos</option>
-                            <option value="pendente">Pendente</option>
-                            <option value="andamento">Andamento</option>
-                            <option value="concluido">Concluído</option>
-                            <option value="atraso">Atraso</option>
-                        </select>
+                        <div class="relative">
+                            <button id="btnStatFilter" onclick="toggleDropdown('statFilterDropdown')"
+                                class="flex items-center gap-2 text-xs px-3 py-2 border rounded-md bg-white min-w-[150px] font-bold text-slate-700 hover:bg-slate-50 outline-none">
+                                <span id="labelStatFilter">Todos</span>
+                                <span class="ml-auto text-slate-400 text-[10px]">▾</span>
+                            </button>
+                            <div id="statFilterDropdown" class="filter-dropdown hidden" style="top:100%;left:0;">
+                                <label><input type="checkbox" class="stat-cb" value="all" checked onchange="onStatCbChange(this)"> Todos</label>
+                                <label><input type="checkbox" class="stat-cb" value="pendente" onchange="onStatCbChange(this)"> Pendente</label>
+                                <label><input type="checkbox" class="stat-cb" value="andamento" onchange="onStatCbChange(this)"> Em Andamento</label>
+                                <label><input type="checkbox" class="stat-cb" value="concluido" onchange="onStatCbChange(this)"> Concluído</label>
+                                <label><input type="checkbox" class="stat-cb" value="atraso" onchange="onStatCbChange(this)"> Atraso</label>
+                            </div>
+                        </div>
                     </div>
+
+                    <!-- Sprint -->
                     <div class="flex gap-2 p-2 bg-indigo-50 rounded-lg border border-indigo-100">
                         <div class="flex flex-col">
                             <label class="text-[9px] font-bold text-indigo-400 uppercase mb-1">Início Sprint</label>
@@ -188,6 +226,8 @@
                             <input type="date" id="filterSprintEnd" onchange="renderTasks()" class="text-xs p-1 border rounded-md outline-none">
                         </div>
                     </div>
+
+                    <!-- Busca -->
                     <div class="flex flex-col">
                         <label class="text-[9px] font-bold text-slate-400 uppercase mb-1">Busca Rápida</label>
                         <div class="flex gap-2">
@@ -196,6 +236,7 @@
                         </div>
                     </div>
                 </div>
+
                 <div class="flex items-center gap-3">
                     <span id="showingCount" class="text-[10px] font-bold text-slate-400 uppercase">Exibindo 0 atividades</span>
                     <button onclick="downloadPDF()" class="flex items-center gap-2 bg-rose-600 hover:bg-rose-700 text-white px-4 py-2 rounded-lg font-bold text-xs shadow transition-all">
@@ -209,6 +250,7 @@
                     <table id="taskTable" class="w-full text-left border-collapse" style="table-layout:fixed;">
                         <thead class="bg-slate-50 border-b border-slate-200 text-[10px] uppercase text-slate-500 font-bold tracking-widest">
                             <tr>
+                                <th class="py-4 px-2" style="width:28px;"></th>
                                 <th class="py-4 px-4" style="width:140px;">Empreendimento<div class="col-resizer"></div></th>
                                 <th class="py-4 px-4" style="width:340px;">Atividade & Histórico<div class="col-resizer"></div></th>
                                 <th class="py-4 px-4" style="width:130px;">Responsável<div class="col-resizer"></div></th>
@@ -577,11 +619,18 @@
                 </div>
 
                 <div id="reprogramarSection" class="md:col-span-2 hidden bg-amber-50 p-4 rounded-xl border border-amber-200">
-                    <h4 class="text-amber-800 font-black text-[10px] uppercase mb-2">⚠️ Reprogramação</h4>
-                    <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <h4 class="text-amber-800 font-black text-[10px] uppercase mb-3">⚠️ Reprogramação</h4>
+                    <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-3">
                         <input type="date" id="newDeadline" class="p-2 border rounded-md text-xs">
                         <textarea id="reproReason" rows="1" class="p-2 border rounded-md text-xs" placeholder="Motivo da mudança..."></textarea>
                     </div>
+                    <label class="flex items-center gap-3 cursor-pointer bg-rose-50 border border-rose-200 rounded-lg p-3 hover:bg-rose-100 transition-all">
+                        <input type="checkbox" id="reproIsAtraso" class="w-4 h-4 accent-rose-600">
+                        <div>
+                            <span class="text-rose-700 font-black text-xs uppercase">⚠ Atividade está atrasada?</span>
+                            <p class="text-rose-500 text-[10px] mt-0.5">Se marcado, o status vira ATRASO e o sistema calculará os dias de atraso a partir do prazo original desta reprogramação.</p>
+                        </div>
+                    </label>
                 </div>
 
                 <div class="md:col-span-2">
@@ -621,11 +670,86 @@
         const TODAY = new Date();
         const TODAY_ISO = TODAY.toISOString().split('T')[0];
 
+        // ══════════════════════════════════════════════════════
+        // MULTI-SELECT FILTERS
+        // ══════════════════════════════════════════════════════
+        window.activeProjFilters = new Set(['all']);
+        window.activeStatFilters = new Set(['all']);
+
+        function toggleDropdown(id) {
+            ['projFilterDropdown','statFilterDropdown'].forEach(d => {
+                if (d !== id) document.getElementById(d)?.classList.add('hidden');
+            });
+            document.getElementById(id)?.classList.toggle('hidden');
+        }
+        document.addEventListener('click', e => {
+            if (!e.target.closest('#btnProjFilter') && !e.target.closest('#projFilterDropdown'))
+                document.getElementById('projFilterDropdown')?.classList.add('hidden');
+            if (!e.target.closest('#btnStatFilter') && !e.target.closest('#statFilterDropdown'))
+                document.getElementById('statFilterDropdown')?.classList.add('hidden');
+        });
+
+        function onProjCbChange(cb) {
+            const all = document.querySelectorAll('.proj-cb');
+            if (cb.value === 'all') {
+                all.forEach(c => { if (c.value !== 'all') c.checked = false; });
+                window.activeProjFilters = new Set(['all']);
+            } else {
+                document.querySelector('.proj-cb[value="all"]').checked = false;
+                const checked = [...all].filter(c => c.checked && c.value !== 'all').map(c => c.value);
+                window.activeProjFilters = checked.length ? new Set(checked) : new Set(['all']);
+                if (!checked.length) document.querySelector('.proj-cb[value="all"]').checked = true;
+            }
+            document.getElementById('labelProjFilter').innerText =
+                window.activeProjFilters.has('all') ? 'Todos' : [...window.activeProjFilters].join(', ').substring(0,22) + ([...window.activeProjFilters].join(', ').length > 22 ? '…' : '');
+            renderTasks();
+        }
+
+        function onStatCbChange(cb) {
+            const all = document.querySelectorAll('.stat-cb');
+            if (cb.value === 'all') {
+                all.forEach(c => { if (c.value !== 'all') c.checked = false; });
+                window.activeStatFilters = new Set(['all']);
+            } else {
+                document.querySelector('.stat-cb[value="all"]').checked = false;
+                const checked = [...all].filter(c => c.checked && c.value !== 'all').map(c => c.value);
+                window.activeStatFilters = checked.length ? new Set(checked) : new Set(['all']);
+                if (!checked.length) document.querySelector('.stat-cb[value="all"]').checked = true;
+            }
+            document.getElementById('labelStatFilter').innerText =
+                window.activeStatFilters.has('all') ? 'Todos' : [...window.activeStatFilters].map(s => s.charAt(0).toUpperCase()+s.slice(1)).join(', ');
+            renderTasks();
+        }
+
         function filterFromDash(status) {
-            document.getElementById('filterStatus').value = status;
+            // Reseta e aplica só o status clicado
+            document.querySelectorAll('.stat-cb').forEach(c => c.checked = false);
+            if (status === 'all') {
+                document.querySelector('.stat-cb[value="all"]').checked = true;
+                window.activeStatFilters = new Set(['all']);
+                document.getElementById('labelStatFilter').innerText = 'Todos';
+            } else {
+                document.querySelector(`.stat-cb[value="${status}"]`).checked = true;
+                window.activeStatFilters = new Set([status]);
+                document.getElementById('labelStatFilter').innerText = status.charAt(0).toUpperCase()+status.slice(1);
+            }
             switchTab('lista');
             renderTasks();
         }
+
+        function clearFilters() {
+            window.activeProjFilters = new Set(['all']);
+            window.activeStatFilters = new Set(['all']);
+            document.querySelectorAll('.proj-cb').forEach(c => c.checked = c.value === 'all');
+            document.querySelectorAll('.stat-cb').forEach(c => c.checked = c.value === 'all');
+            document.getElementById('labelProjFilter').innerText = 'Todos';
+            document.getElementById('labelStatFilter').innerText = 'Todos';
+            document.getElementById('filterSprintStart').value = '';
+            document.getElementById('filterSprintEnd').value = '';
+            document.getElementById('searchTerm').value = '';
+            renderTasks();
+        }
+        // ══════════════════════════════════════════════════════
 
         function switchTab(tab) {
             document.getElementById('tab-content-lista').classList.toggle('hidden', tab !== 'lista');
@@ -635,15 +759,6 @@
             document.getElementById('btn-tab-analise').className = tab === 'analise' ? 'pb-2 tab-active' : 'pb-2 tab-inactive';
             document.getElementById('btn-tab-usuarios').className = tab === 'usuarios' ? 'pb-2 tab-active' : 'pb-2 tab-inactive';
             if(tab === 'analise') updateCharts();
-        }
-
-        function clearFilters() {
-            document.getElementById('filterProject').value = 'all';
-            document.getElementById('filterStatus').value = 'all';
-            document.getElementById('filterSprintStart').value = '';
-            document.getElementById('filterSprintEnd').value = '';
-            document.getElementById('searchTerm').value = '';
-            renderTasks();
         }
 
         function toggleReprogramar() { document.getElementById('reprogramarSection').classList.toggle('hidden'); }
@@ -747,50 +862,103 @@
             } catch(e) { alert('Erro ao abrir histórico.'); }
         }
 
+        function getOrderedTasks(filtered) {
+            const order = window.taskOrder || [];
+            if (!order.length) return filtered;
+            const idxMap = {};
+            order.forEach((id, i) => idxMap[id] = i);
+            return [...filtered].sort((a, b) => {
+                const ai = idxMap[a.id] !== undefined ? idxMap[a.id] : 999999;
+                const bi = idxMap[b.id] !== undefined ? idxMap[b.id] : 999999;
+                return ai - bi;
+            });
+        }
+
+        function calcDiasAtraso(t) {
+            // Atrasada manualmente: conta desde delayStartDate
+            if (t.delayStartDate) {
+                const start = new Date(t.delayStartDate + 'T00:00:00');
+                const hoje = new Date(TODAY_ISO + 'T00:00:00');
+                return Math.max(0, Math.round((hoje - start) / (1000*60*60*24)));
+            }
+            // Atrasada por prazo vencido
+            if (t.deadline) {
+                const prazo = new Date(t.deadline + 'T00:00:00');
+                const hoje = new Date(TODAY_ISO + 'T00:00:00');
+                const diff = Math.round((hoje - prazo) / (1000*60*60*24));
+                return diff > 0 ? diff : 0;
+            }
+            return 0;
+        }
+
         function renderTasks() {
             const tbody = document.getElementById('taskTableBody');
-            const projectF = document.getElementById('filterProject').value;
-            const statusF = document.getElementById('filterStatus').value;
-            const search = document.getElementById('searchTerm').value.toLowerCase();
+            const projF = window.activeProjFilters || new Set(['all']);
+            const statF = window.activeStatFilters  || new Set(['all']);
+            const search = (document.getElementById('searchTerm').value || '').toLowerCase();
+            const startF = document.getElementById('filterSprintStart').value;
+            const endF   = document.getElementById('filterSprintEnd').value;
+
             tbody.innerHTML = '';
+
+            // Auto-detect overdue: if deadline passed and status not concluded/already atraso
+            const hoje = new Date(TODAY_ISO + 'T00:00:00');
+            window.tasks.forEach(t => {
+                if (t.status !== 'concluido' && t.status !== 'atraso' && t.deadline) {
+                    const prazo = new Date(t.deadline + 'T00:00:00');
+                    if (prazo < hoje) t.status = 'atraso';
+                }
+            });
+
             const filtered = window.tasks.filter(t => {
-                const mP = projectF === 'all' || t.project === projectF;
-                const mS = statusF === 'all' || t.status === statusF;
-                const mSearch = (t.title||"").toLowerCase().includes(search) || (t.owner||"").toLowerCase().includes(search);
+                const mP = projF.has('all') || projF.has(t.project);
+                const mS = statF.has('all') || statF.has(t.status);
+                const mSearch = (t.title||'').toLowerCase().includes(search) || (t.owner||'').toLowerCase().includes(search);
                 return mP && mS && mSearch;
             });
-            filtered.forEach(t => {
+
+            const ordered = getOrderedTasks(filtered);
+
+            ordered.forEach(t => {
+                const diasAtraso = t.status === 'atraso' ? calcDiasAtraso(t) : 0;
+                const atrasoTag = diasAtraso > 0
+                    ? `<span class="ml-1 text-[9px] font-black text-rose-600 bg-rose-100 px-1.5 py-0.5 rounded">+${diasAtraso}d atraso</span>` : '';
                 const row = document.createElement('tr');
                 row.className = 'hover:bg-slate-50 transition-all group';
+                row.dataset.taskId = t.id;
+                row.draggable = true;
                 row.innerHTML = `
-                    <td class="py-4 px-6 align-top uppercase" style="overflow:hidden;">
+                    <td class="py-3 px-2 align-top text-center">
+                        <span class="drag-handle" title="Arrastar para reordenar">⠿</span>
+                    </td>
+                    <td class="py-4 px-4 align-top uppercase" style="overflow:hidden;">
                         <div class="text-[10px] font-black text-indigo-600 mb-1">${t.project}</div>
                         <div class="text-[9px] font-bold text-slate-400 bg-slate-100 px-2 py-0.5 rounded-sm inline-block">${t.sector || '-'}</div>
                     </td>
                     <td class="py-4 px-4 align-top" style="overflow:hidden;">
-                        <div class="font-bold text-slate-800 leading-tight">${t.title}</div>
+                        <div class="font-bold text-slate-800 leading-tight">${t.title}${atrasoTag}</div>
                         ${renderHistoryInTable(t.notes, t.id)}
                     </td>
-                    <td class="py-4 px-4 align-top font-semibold text-slate-600" style="overflow:hidden;">${t.owner}</td>
+                    <td class="py-4 px-4 align-top font-semibold text-slate-600" style="overflow:hidden;">${Array.isArray(t.owners) && t.owners.length ? t.owners.join(', ') : (t.owner||'-')}</td>
                     <td class="py-4 px-4 align-top text-rose-600 text-[10px] italic" style="overflow:hidden;">${t.problems || '-'}</td>
                     <td class="py-4 px-4 align-top text-indigo-700 text-[10px] font-medium" style="overflow:hidden;">${t.nextSteps || '-'}</td>
                     <td class="py-4 px-4 align-top font-bold text-slate-900" style="overflow:hidden;">${t.deadline ? t.deadline.split('-').reverse().join('/') : '-'}</td>
                     <td class="py-4 px-4 align-top text-amber-600 text-[10px] font-mono" style="overflow:hidden;">${t.oldExpectations || '-'}</td>
                     <td class="py-4 px-4 align-top" style="overflow:hidden;"><span class="status-badge status-${t.status}">${t.status}</span></td>
-                    <td class="py-4 px-6 align-top text-right">
+                    <td class="py-4 px-4 align-top text-right">
                         <div class="flex gap-2 justify-end opacity-0 group-hover:opacity-100 transition-all">
-                            <button onclick="sendTaskEmail(${t.id}, this)" 
-                                title="Enviar e-mail para responsável(eis)"
-                                class="bg-emerald-600 hover:bg-emerald-700 text-white px-3 py-1 rounded text-[10px] font-bold flex items-center gap-1">
-                                ✉ EMAIL
-                            </button>
+                            <button onclick="sendTaskEmail(${t.id}, this)"
+                                title="Enviar e-mail"
+                                class="bg-emerald-600 hover:bg-emerald-700 text-white px-3 py-1 rounded text-[10px] font-bold">✉</button>
                             <button onclick="editTask(${t.id})" class="bg-slate-800 hover:bg-slate-700 text-white px-3 py-1 rounded text-[10px] font-bold">EDITAR</button>
                         </div>
                     </td>
                 `;
                 tbody.appendChild(row);
             });
-            document.getElementById('showingCount').innerText = `Exibindo ${filtered.length} atividades`;
+
+            document.getElementById('showingCount').innerText = `Exibindo ${ordered.length} atividades`;
+            initDragDrop();
         }
 
         function editTask(id) {
@@ -808,6 +976,7 @@
             document.getElementById('reprogramarSection').classList.add('hidden');
             document.getElementById('newDeadline').value = '';
             document.getElementById('reproReason').value = '';
+            document.getElementById('reproIsAtraso').checked = false;
             document.getElementById('btnReprogramar').classList.remove('hidden');
             document.getElementById('editDeadline').readOnly = true;
             document.getElementById('historyContainer').innerHTML = '';
@@ -853,31 +1022,49 @@
             let finalOldExpectations = document.getElementById('editOldExpectations').value;
             const newDate = document.getElementById('newDeadline').value;
             const reason = document.getElementById('reproReason').value;
+            const reproIsAtraso = document.getElementById('reproIsAtraso').checked;
+
+            // Busca tarefa atual para preservar delayStartDate
+            const currentId = parseInt(document.getElementById('editIdx').value);
+            const currentTask = window.tasks.find(x => x.id === currentId) || {};
+            let delayStartDate = currentTask.delayStartDate || null;
+
+            let finalStatus = document.getElementById('editStatus').value;
 
             if(!document.getElementById('reprogramarSection').classList.contains('hidden')) {
                 if(!newDate || !reason) return alert("Preencha a nova data e o motivo.");
                 const oldF = finalDeadline.split('-').reverse().join('/');
                 finalOldExpectations = finalOldExpectations ? `${finalOldExpectations}; ${oldF}` : oldF;
-                addHistoryLine(TODAY_ISO, `[REPROG] Alterado de ${oldF} para ${newDate.split('-').reverse().join('/')}. Motivo: ${reason}`);
+
+                // Se marcou atraso na reprogramação
+                if (reproIsAtraso) {
+                    finalStatus = 'atraso';
+                    // Salva a data ORIGINAL do prazo como referência do atraso (só na primeira vez)
+                    if (!delayStartDate) delayStartDate = finalDeadline;
+                    addHistoryLine(TODAY_ISO, `[REPROG+ATRASO] Prazo alterado de ${oldF} para ${newDate.split('-').reverse().join('/')}. Motivo: ${reason}`);
+                } else {
+                    addHistoryLine(TODAY_ISO, `[REPROG] Alterado de ${oldF} para ${newDate.split('-').reverse().join('/')}. Motivo: ${reason}`);
+                }
                 finalDeadline = newDate;
             }
 
             btn.innerText = "Salvando...";
             const selectedOwners = getSelectedOwners();
             await window.saveToFirebase({
-                id: parseInt(document.getElementById('editIdx').value),
+                id: currentId,
                 project: document.getElementById('editProject').value.toUpperCase(),
                 sector: document.getElementById('editSector').value.toUpperCase(),
                 title: document.getElementById('editTitle').value,
-                owner: selectedOwners.join(', '), // compatibilidade legada
+                owner: selectedOwners.join(', '),
                 owners: selectedOwners,
-                status: document.getElementById('editStatus').value,
+                status: finalStatus,
                 start: document.getElementById('editStart').value,
                 deadline: finalDeadline,
                 oldExpectations: finalOldExpectations,
                 problems: document.getElementById('editProblems').value,
                 nextSteps: document.getElementById('editNextSteps').value,
-                notes: getHistoryData()
+                notes: getHistoryData(),
+                delayStartDate: delayStartDate || null
             });
             btn.innerText = "Salvar Atividade";
             closeModal();
@@ -1102,14 +1289,12 @@
         // DOWNLOAD PDF
         // ══════════════════════════════════════════════════════
         function getFilteredTasks() {
-            const projectF = document.getElementById('filterProject').value;
-            const statusF = document.getElementById('filterStatus').value;
+            const projF = window.activeProjFilters || new Set(['all']);
+            const statF = window.activeStatFilters  || new Set(['all']);
             const search = (document.getElementById('searchTerm').value || '').toLowerCase();
-            const startF = document.getElementById('filterSprintStart').value;
-            const endF = document.getElementById('filterSprintEnd').value;
             return window.tasks.filter(t => {
-                const mP = projectF === 'all' || t.project === projectF;
-                const mS = statusF === 'all' || t.status === statusF;
+                const mP = projF.has('all') || projF.has(t.project);
+                const mS = statF.has('all') || statF.has(t.status);
                 const mSearch = (t.title||'').toLowerCase().includes(search) || (t.owner||'').toLowerCase().includes(search);
                 return mP && mS && mSearch;
             });
@@ -1141,15 +1326,17 @@
             doc.setFont('helvetica', 'normal');
             doc.text(`Relatório gerado em ${new Date().toLocaleString('pt-BR')}`, 10, 16);
 
-            // Filtros ativos
-            const projF = document.getElementById('filterProject').value;
-            const statF = document.getElementById('filterStatus').value;
+            // Filtros ativos (multi-select)
+            const projF = window.activeProjFilters || new Set(['all']);
+            const statF = window.activeStatFilters  || new Set(['all']);
             const sprintS = document.getElementById('filterSprintStart').value;
             const sprintE = document.getElementById('filterSprintEnd').value;
             const search = document.getElementById('searchTerm').value;
+            const projLabel = projF.has('all') ? '' : [...projF].join(', ');
+            const statLabel = statF.has('all') ? '' : [...statF].join(', ');
             const filtrosAtivos = [
-                projF !== 'all' ? `Projeto: ${projF}` : '',
-                statF !== 'all' ? `Status: ${statF}` : '',
+                projLabel ? `Projeto: ${projLabel}` : '',
+                statLabel ? `Status: ${statLabel}` : '',
                 sprintS ? `Sprint início: ${sprintS.split('-').reverse().join('/')}` : '',
                 sprintE ? `Sprint fim: ${sprintE.split('-').reverse().join('/')}` : '',
                 search ? `Busca: "${search}"` : ''
@@ -1524,6 +1711,54 @@
         }
         // ══════════════════════════════════════════════════════
 
+        // ══════════════════════════════════════════════════════
+        // DRAG & DROP PARA REORDENAR LINHAS
+        // ══════════════════════════════════════════════════════
+        let dragSrcRow = null;
+
+        function initDragDrop() {
+            const rows = document.querySelectorAll('#taskTableBody tr[draggable="true"]');
+            rows.forEach(row => {
+                row.addEventListener('dragstart', e => {
+                    dragSrcRow = row;
+                    row.classList.add('dragging');
+                    e.dataTransfer.effectAllowed = 'move';
+                });
+                row.addEventListener('dragend', () => {
+                    row.classList.remove('dragging');
+                    document.querySelectorAll('#taskTableBody tr').forEach(r => r.classList.remove('drag-over'));
+                });
+                row.addEventListener('dragover', e => {
+                    e.preventDefault();
+                    e.dataTransfer.dropEffect = 'move';
+                    if (row !== dragSrcRow) {
+                        document.querySelectorAll('#taskTableBody tr').forEach(r => r.classList.remove('drag-over'));
+                        row.classList.add('drag-over');
+                    }
+                });
+                row.addEventListener('drop', async e => {
+                    e.preventDefault();
+                    if (dragSrcRow && dragSrcRow !== row) {
+                        const tbody = document.getElementById('taskTableBody');
+                        const allRows = [...tbody.querySelectorAll('tr')];
+                        const srcIdx = allRows.indexOf(dragSrcRow);
+                        const tgtIdx = allRows.indexOf(row);
+                        if (srcIdx < tgtIdx) {
+                            row.after(dragSrcRow);
+                        } else {
+                            row.before(dragSrcRow);
+                        }
+                        // Salva nova ordem no Firebase
+                        const newOrder = [...tbody.querySelectorAll('tr')].map(r => parseInt(r.dataset.taskId)).filter(Boolean);
+                        window.taskOrder = newOrder;
+                        await window.saveOrderToFirebase(newOrder);
+                    }
+                    document.querySelectorAll('#taskTableBody tr').forEach(r => r.classList.remove('drag-over'));
+                });
+            });
+        }
+        // ══════════════════════════════════════════════════════
+
         function initResizableColumns() {
             const table = document.getElementById('taskTable');
             if (!table) return;
@@ -1567,10 +1802,13 @@
         });
 
         function updateDropdowns() {
-            const projects = [...new Set(window.tasks.map(t => t.project))].sort();
-            const fProj = document.getElementById('filterProject');
-            fProj.innerHTML = '<option value="all">Todos os Projetos</option>';
-            projects.forEach(p => { fProj.innerHTML += `<option value="${p}">${p}</option>`; });
+            const projects = [...new Set(window.tasks.map(t => t.project).filter(Boolean))].sort();
+            const container = document.getElementById('projCbList');
+            if (!container) return;
+            const checked = new Set([...document.querySelectorAll('.proj-cb:checked')].map(c => c.value));
+            container.innerHTML = projects.map(p =>
+                `<label><input type="checkbox" class="proj-cb" value="${p}" ${checked.has(p)?'checked':''} onchange="onProjCbChange(this)"> ${p}</label>`
+            ).join('');
         }
 
         function updateConfigSelects() {
@@ -1598,43 +1836,43 @@
         function updateCharts() {
             const stats = { total: window.tasks.length, concluido: 0, andamento: 0, pendente: 0, atraso: 0 };
             const projMap = {};
-            const hoje = new Date();
-            hoje.setHours(0,0,0,0);
+            const hoje = new Date(TODAY_ISO + 'T00:00:00');
 
             const criticas = [];
             const proximas = [];
 
             window.tasks.forEach(t => {
-                if(stats[t.status] !== undefined) stats[t.status]++;
-                
-                // Agrupamento por projeto
+                // Conta atraso automático por prazo vencido
+                let status = t.status;
+                if (status !== 'concluido' && status !== 'atraso' && t.deadline) {
+                    const prazo = new Date(t.deadline + 'T00:00:00');
+                    if (prazo < hoje) status = 'atraso';
+                }
+                if(stats[status] !== undefined) stats[status]++;
+
                 if(!projMap[t.project]) projMap[t.project] = { total: 0, andamento: 0, concluido: 0 };
                 projMap[t.project].total++;
                 if(t.status === 'andamento') projMap[t.project].andamento++;
                 if(t.status === 'concluido') projMap[t.project].concluido++;
 
-                // Cálculos de datas
-                if(t.deadline && t.status !== 'concluido') {
-                    const prazo = new Date(t.deadline);
-                    const diffTime = prazo - hoje;
-                    const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
-
-                    if(diffDays < 0) {
-                        criticas.push({...t, diasAtraso: Math.abs(diffDays)});
-                    } else if(diffDays >= 0 && diffDays <= 30) {
-                        proximas.push({...t, diasFaltam: diffDays});
-                    }
+                // Críticas: status atraso OU prazo vencido OU delayStartDate definido
+                const isAtraso = status === 'atraso' || t.status === 'atraso';
+                if (isAtraso && t.status !== 'concluido') {
+                    const dias = calcDiasAtraso(t);
+                    criticas.push({...t, diasAtraso: dias, _statusEfetivo: 'atraso'});
+                } else if (t.deadline && t.status !== 'concluido') {
+                    const prazo = new Date(t.deadline + 'T00:00:00');
+                    const diffDays = Math.ceil((prazo - hoje) / (1000*60*60*24));
+                    if (diffDays >= 0 && diffDays <= 30) proximas.push({...t, diasFaltam: diffDays});
                 }
             });
 
-            // Atualiza Cards
             document.getElementById('statTotal').innerText = stats.total;
             document.getElementById('statPendente').innerText = stats.pendente;
             document.getElementById('statAndamento').innerText = stats.andamento;
             document.getElementById('statConcluido').innerText = stats.concluido;
             document.getElementById('statAtraso').innerText = stats.atraso;
 
-            // Renderiza Tabela de Resumo
             const summaryBody = document.getElementById('projectSummaryBody');
             summaryBody.innerHTML = '';
             Object.keys(projMap).sort().forEach(p => {
@@ -1657,20 +1895,23 @@
                     </tr>`;
             });
 
-            // Renderiza Tabela Críticas
             const limitC = parseInt(document.getElementById('limitCriticas').value) || 5;
             const criticasBody = document.getElementById('tableCriticasBody');
             criticasBody.innerHTML = '';
-            criticas.sort((a,b) => b.diasAtraso - a.diasAtraso).slice(0, limitC).forEach(t => {
-                criticasBody.innerHTML += `
-                    <tr class="hover:bg-rose-50">
-                        <td class="p-3 font-bold text-slate-700">${t.title}</td>
-                        <td class="p-3 uppercase text-[10px] text-slate-500">${t.project}</td>
-                        <td class="p-3 text-center text-rose-600 font-black">${t.diasAtraso}d</td>
-                    </tr>`;
-            });
+            if (criticas.length === 0) {
+                criticasBody.innerHTML = `<tr><td colspan="3" class="p-4 text-center text-slate-400 text-xs">✅ Nenhuma atividade crítica.</td></tr>`;
+            } else {
+                criticas.sort((a,b) => b.diasAtraso - a.diasAtraso).slice(0, limitC).forEach(t => {
+                    const fonte = t.delayStartDate ? `<span class="text-[8px] text-rose-400 block">desde ${t.delayStartDate.split('-').reverse().join('/')}</span>` : '';
+                    criticasBody.innerHTML += `
+                        <tr class="hover:bg-rose-50">
+                            <td class="p-3 font-bold text-slate-700">${t.title}</td>
+                            <td class="p-3 uppercase text-[10px] text-slate-500">${t.project}</td>
+                            <td class="p-3 text-center text-rose-600 font-black">${t.diasAtraso}d${fonte}</td>
+                        </tr>`;
+                });
+            }
 
-            // Renderiza Tabela Próximas
             const limitP = parseInt(document.getElementById('limitProximas').value) || 5;
             const proximasBody = document.getElementById('tableProximasBody');
             proximasBody.innerHTML = '';
@@ -1678,13 +1919,12 @@
                 proximasBody.innerHTML += `
                     <tr class="hover:bg-indigo-50">
                         <td class="p-3 font-bold text-slate-700">${t.title}</td>
-                        <td class="p-3 text-slate-500">${t.owner}</td>
+                        <td class="p-3 text-slate-500">${Array.isArray(t.owners) && t.owners.length ? t.owners.join(', ') : (t.owner||'-')}</td>
                         <td class="p-3 text-[10px] font-mono">${t.deadline.split('-').reverse().join('/')}</td>
                         <td class="p-3 text-center text-indigo-600 font-black">${t.diasFaltam}d</td>
                     </tr>`;
             });
 
-            // Gráfico de Pizza
             if (chartGeral) chartGeral.destroy();
             chartGeral = new Chart(document.getElementById('chartStatusGeral'), {
                 type: 'pie',
